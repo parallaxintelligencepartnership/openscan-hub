@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openscan-hub"
+version = "0.1.0"
+description = "Universal network scanner to Paperless-NGX bridge"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Parallax Intelligence Partnership, LLC" },
+]
+keywords = ["scanner", "paperless", "escl", "airscan", "wsd", "scanning"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Graphics :: Capture :: Scanners",
+]
+dependencies = [
+    "zeroconf>=0.80.0",
+]
+
+[project.optional-dependencies]
+tray = ["pystray>=0.19", "Pillow>=10.0"]
+dev = ["pyinstaller>=6.0", "pytest>=8.0"]
+
+[project.scripts]
+openscan = "openscan.main:main"
+
+[project.urls]
+Homepage = "https://github.com/parallaxintelligence/openscan-hub"
+Documentation = "https://github.com/parallaxintelligence/openscan-hub#readme"
+Repository = "https://github.com/parallaxintelligence/openscan-hub"
+Issues = "https://github.com/parallaxintelligence/openscan-hub/issues"
+
+[tool.setuptools.packages.find]
+include = ["openscan*"]
+
+[tool.setuptools.package-data]
+"openscan.web.static" = ["**/*"]

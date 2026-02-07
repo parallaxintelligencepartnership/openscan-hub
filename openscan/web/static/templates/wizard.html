@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenScanHub - Setup</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>OpenScanHub</h1>
+            <p class="subtitle">Let's set up your scanner</p>
+        </div>
+
+        <!-- Step Indicator -->
+        <div class="steps">
+            <div class="step-dot active" data-step="1">1</div>
+            <div class="step-dot" data-step="2">2</div>
+            <div class="step-dot" data-step="3">3</div>
+            <div class="step-dot" data-step="4">4</div>
+            <div class="step-dot" data-step="5">5</div>
+            <div class="step-dot" data-step="6">6</div>
+        </div>
+
+        <!-- Step 1: Welcome -->
+        <div class="step-content active" data-step="1">
+            <div class="card">
+                <h2>Welcome!</h2>
+                <p>OpenScanHub connects your network scanner to your computer, NAS, or Paperless-NGX. Scans go where you want them, automatically.</p>
+                <p>This wizard will help you:</p>
+                <ul style="padding-left: 20px; color: var(--gray-600); font-size: 14px; margin-bottom: 16px;">
+                    <li>Find your scanner on the network</li>
+                    <li>Test the connection</li>
+                    <li>Choose where to save your scans</li>
+                    <li>Optionally connect to Paperless-NGX</li>
+                </ul>
+                <p>It takes about 2 minutes.</p>
+            </div>
+            <div class="step-nav">
+                <button class="btn btn-primary btn-large" onclick="wizard.nextStep()">Get Started</button>
+            </div>
+        </div>
+
+        <!-- Step 2: Find Scanner -->
+        <div class="step-content" data-step="2">
+            <div class="card">
+                <h2>Find Your Scanner</h2>
+                <p>We'll search your network for compatible scanners.</p>
+
+                <button class="btn btn-primary btn-large" id="btn-discover" onclick="wizard.discover()">
+                    Search for Scanners
+                </button>
+
+                <div id="discover-loading" class="loading hidden">
+                    <div class="spinner spinner-large"></div>
+                    <span>Searching your network...</span>
+                </div>
+
+                <ul class="scanner-list mt-16" id="scanner-list"></ul>
+
+                <div id="no-scanners" class="hidden mt-16">
+                    <div class="alert alert-warning">No scanners found automatically. You can enter your scanner's IP address below, or set up a folder watcher.</div>
+                </div>
+
+                <div class="mt-16">
+                    <details>
+                        <summary style="cursor: pointer; font-size: 14px; color: var(--gray-500);">Enter IP address manually</summary>
+                        <div class="mt-8" style="display: flex; gap: 8px;">
+                            <input type="text" id="manual-ip" placeholder="192.168.1.100" style="flex:1; padding: 10px; border: 2px solid var(--gray-200); border-radius: 8px; font-size: 16px;">
+                            <button class="btn btn-secondary" onclick="wizard.probeManual()">Check</button>
+                        </div>
+                        <div id="probe-result" class="mt-8"></div>
+                    </details>
+                </div>
+
+                <div class="mt-16">
+                    <details>
+                        <summary style="cursor: pointer; font-size: 14px; color: var(--gray-500);">Watch a folder instead</summary>
+                        <div class="mt-8">
+                            <p style="font-size: 13px; color: var(--gray-500); margin-bottom: 8px;">If your scanner saves files to a shared folder, OpenScanHub can watch it and route files to your destinations.</p>
+                            <div class="form-group">
+                                <label>Folder path to watch</label>
+                                <input type="text" id="watch-folder" placeholder="/path/to/scanner/output">
+                            </div>
+                            <button class="btn btn-secondary" onclick="wizard.selectFolderWatch()">Use Folder Watch</button>
+                        </div>
+                    </details>
+                </div>
+            </div>
+            <div class="step-nav">
+                <button class="btn btn-secondary" onclick="wizard.prevStep()">Back</button>
+                <button class="btn btn-primary" onclick="wizard.nextStep()" id="btn-step2-next" disabled>Next</button>
+            </div>
+        </div>
+
+        <!-- Step 3: Test Connection -->
+        <div class="step-content" data-step="3">
+            <div class="card">
+                <h2>Test Connection</h2>
+                <div id="test-scanner-info"></div>
+
+                <button class="btn btn-primary btn-large mt-16" id="btn-test-scan" onclick="wizard.testScan()">
+                    Run Test Scan
+                </button>
+
+                <div id="test-loading" class="loading hidden">
+                    <div class="spinner spinner-large"></div>
+                    <span>Scanning...</span>
+                </div>
+
+                <div id="test-result" class="mt-16"></div>
+            </div>
+            <div class="step-nav">
+                <button class="btn btn-secondary" onclick="wizard.prevStep()">Back</button>
+                <button class="btn btn-primary" onclick="wizard.nextStep()" id="btn-step3-next">Next</button>
+            </div>
+        </div>
+
+        <!-- Step 4: Output Folder -->
+        <div class="step-content" data-step="4">
+            <div class="card">
+                <h2>Where to Save Scans</h2>
+                <p>Choose a folder where your scans will be saved.</p>
+
+                <div class="form-group">
+                    <label>Output folder</label>
+                    <input type="text" id="output-folder" placeholder="/home/user/Scans" value="">
+                </div>
+
+                <div class="form-group">
+                    <label>Filename pattern</label>
+                    <input type="text" id="filename-pattern" value="scan_{date}_{time}_{n}">
+                    <small style="color: var(--gray-400); font-size: 12px;">
+                        {date} = 2025-01-15, {time} = 143022, {n} = auto-number
+                    </small>
+                </div>
+            </div>
+            <div class="step-nav">
+                <button class="btn btn-secondary" onclick="wizard.prevStep()">Back</button>
+                <button class="btn btn-primary" onclick="wizard.nextStep()" id="btn-step4-next">Next</button>
+            </div>
+        </div>
+
+        <!-- Step 5: Paperless (Optional) -->
+        <div class="step-content" data-step="5">
+            <div class="card">
+                <h2>Paperless-NGX</h2>
+                <p>Optionally send scans to Paperless-NGX for automatic document management.</p>
+
+                <label class="toggle">
+                    <input type="checkbox" id="paperless-enabled" onchange="wizard.togglePaperless()">
+                    <span class="slider"></span>
+                    <span class="label">I use Paperless-NGX</span>
+                </label>
+
+                <div id="paperless-config" class="hidden mt-16">
+                    <div class="form-group">
+                        <label>Integration method</label>
+                        <select id="paperless-mode" onchange="wizard.togglePaperlessMode()">
+                            <option value="consume">Consume folder (drop files)</option>
+                            <option value="api">REST API (upload directly)</option>
+                        </select>
+                    </div>
+
+                    <div id="paperless-consume-fields">
+                        <div class="form-group">
+                            <label>Consume folder path</label>
+                            <input type="text" id="paperless-consume-folder" placeholder="/path/to/paperless/consume">
+                        </div>
+                    </div>
+
+                    <div id="paperless-api-fields" class="hidden">
+                        <div class="form-group">
+                            <label>Paperless URL</label>
+                            <input type="url" id="paperless-url" placeholder="http://localhost:8000">
+                        </div>
+                        <div class="form-group">
+                            <label>API Token</label>
+                            <input type="password" id="paperless-token" placeholder="Your API token">
+                            <small style="color: var(--gray-400); font-size: 12px;">
+                                Find this in Paperless > Settings > API
+                            </small>
+                        </div>
+                        <button class="btn btn-secondary mt-8" onclick="wizard.testPaperless()">Test Connection</button>
+                        <div id="paperless-test-result" class="mt-8"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="step-nav">
+                <button class="btn btn-secondary" onclick="wizard.prevStep()">Back</button>
+                <button class="btn btn-primary" onclick="wizard.nextStep()">Next</button>
+            </div>
+        </div>
+
+        <!-- Step 6: Done -->
+        <div class="step-content" data-step="6">
+            <div class="card">
+                <h2>All Set!</h2>
+                <p>Here's a summary of your configuration:</p>
+
+                <ul class="summary-list" id="config-summary"></ul>
+            </div>
+            <div class="step-nav">
+                <button class="btn btn-secondary" onclick="wizard.prevStep()">Back</button>
+                <button class="btn btn-success btn-large" onclick="wizard.finish()">Start Scanning</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/wizard.js"></script>
+</body>
+</html>

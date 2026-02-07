@@ -1,0 +1,21 @@
+services:
+  openscan:
+    build: .
+    image: openscan-hub
+    container_name: openscan-hub
+    ports:
+      - "8020:8020"
+    volumes:
+      - openscan-config:/config
+      - ./scans:/scans
+    restart: unless-stopped
+    # network_mode: host is needed for mDNS scanner discovery.
+    # If you don't need auto-discovery (using manual IP entry),
+    # you can remove this and use the ports mapping above instead.
+    network_mode: host
+    environment:
+      - OPENSCAN_DOCKER=1
+      - OPENSCAN_CONFIG_DIR=/config
+
+volumes:
+  openscan-config:

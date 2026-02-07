@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenScanHub</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <a href="/wizard" class="settings-link" title="Settings">&#9881;</a>
+
+    <div class="container">
+        <div class="header">
+            <h1>OpenScanHub</h1>
+        </div>
+
+        <!-- Scanner Status -->
+        <div class="card" id="status-card">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <span class="status-dot" id="status-dot"></span>
+                <div>
+                    <div style="font-weight: 600;" id="scanner-name">Loading...</div>
+                    <div style="font-size: 13px; color: var(--gray-500);" id="scanner-detail"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scan Buttons -->
+        <div class="scan-buttons mb-16">
+            <button class="btn btn-primary btn-scan" id="btn-adf" onclick="dashboard.scan('adf')">
+                Document Feeder
+            </button>
+            <div style="height: 12px;"></div>
+            <button class="btn btn-primary btn-scan" id="btn-flatbed" onclick="dashboard.scan('flatbed')">
+                Flatbed Glass
+            </button>
+        </div>
+
+        <!-- Recent Scans -->
+        <div class="card">
+            <h2>Recent Scans</h2>
+            <ul class="history-list" id="history-list">
+                <li class="empty-state">
+                    <div class="icon">&#128196;</div>
+                    <p>No scans yet</p>
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Scan progress overlay -->
+    <div class="scan-overlay" id="scan-overlay">
+        <div class="scan-modal">
+            <div class="spinner spinner-large" style="margin: 0 auto;"></div>
+            <p style="margin-top: 16px; font-weight: 600;">Scanning...</p>
+            <p style="font-size: 14px; color: var(--gray-500); margin-top: 4px;" id="scan-status-text">Please wait</p>
+        </div>
+    </div>
+
+    <!-- Toast container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="/js/dashboard.js"></script>
+</body>
+</html>
