@@ -53,6 +53,16 @@ class FolderWatchConfig:
 
 
 @dataclass
+class FtpReceiveConfig:
+    enabled: bool = False
+    port: int = 2121
+    username: str = "scan"
+    password: str = "scan"
+    staging_dir: str = ""  # Temp dir for incoming files; auto-set if empty
+    delete_after_routing: bool = True
+
+
+@dataclass
 class AppConfig:
     wizard_completed: bool = False
     scanner: ScannerConfig = field(default_factory=ScannerConfig)
@@ -60,6 +70,7 @@ class AppConfig:
     paperless: PaperlessConfig = field(default_factory=PaperlessConfig)
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
     folder_watch: FolderWatchConfig = field(default_factory=FolderWatchConfig)
+    ftp_receive: FtpReceiveConfig = field(default_factory=FtpReceiveConfig)
     web_port: int = 8020
     log_level: str = "INFO"
 
@@ -174,6 +185,17 @@ def _dict_to_config(data: dict) -> AppConfig:
             watch_folder=f.get("watch_folder", ""),
             extensions=f.get("extensions", [".pdf", ".jpg", ".jpeg", ".png", ".tiff", ".tif"]),
             poll_interval=f.get("poll_interval", 5.0),
+        )
+
+    if "ftp_receive" in data:
+        ft = data["ftp_receive"]
+        config.ftp_receive = FtpReceiveConfig(
+            enabled=ft.get("enabled", False),
+            port=ft.get("port", 2121),
+            username=ft.get("username", "scan"),
+            password=ft.get("password", "scan"),
+            staging_dir=ft.get("staging_dir", ""),
+            delete_after_routing=ft.get("delete_after_routing", True),
         )
 
     return config

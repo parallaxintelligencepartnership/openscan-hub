@@ -5,6 +5,8 @@ const wizard = {
     totalSteps: 6,
     selectedScanner: null,
     isFolderWatch: false,
+    isFtpReceive: false,
+    ftpConfig: null,
 
     nextStep() {
         if (this.currentStep >= this.totalSteps) return;
@@ -52,7 +54,7 @@ const wizard = {
     validateStep(step) {
         switch (step) {
             case 2:
-                if (!this.selectedScanner && !this.isFolderWatch) {
+                if (!this.selectedScanner && !this.isFolderWatch && !this.isFtpReceive) {
                     return false;
                 }
                 return true;
@@ -117,6 +119,8 @@ const wizard = {
     selectScanner(scanner, element) {
         this.selectedScanner = scanner;
         this.isFolderWatch = false;
+        this.isFtpReceive = false;
+        this.ftpConfig = null;
         document.querySelectorAll('.scanner-item').forEach(el => el.classList.remove('selected'));
         element.classList.add('selected');
         document.getElementById('btn-step2-next').disabled = false;
@@ -163,6 +167,8 @@ const wizard = {
         document.getElementById('watch-folder').style.borderColor = '';
 
         this.isFolderWatch = true;
+        this.isFtpReceive = false;
+        this.ftpConfig = null;
         this.selectedScanner = {
             name: 'Folder Watcher',
             ip: folder,
@@ -178,9 +184,50 @@ const wizard = {
         document.querySelectorAll('.scanner-item').forEach(el => el.classList.remove('selected'));
     },
 
+    selectFtpReceive() {
+        const port = parseInt(document.getElementById('ftp-port').value) || 2121;
+        const username = document.getElementById('ftp-username').value.trim() || 'scan';
+        const password = document.getElementById('ftp-password').value.trim() || 'scan';
+
+        this.isFtpReceive = true;
+        this.isFolderWatch = false;
+        this.ftpConfig = { port, username, password };
+        this.selectedScanner = {
+            name: 'FTP Receiver',
+            ip: '0.0.0.0',
+            port: port,
+            protocol: 'ftp',
+            model: 'FTP Receiver on port ' + port,
+            display_name: 'FTP Receiver',
+            sources: [],
+        };
+        document.getElementById('btn-step2-next').disabled = false;
+
+        // Clear scanner list selection
+        document.querySelectorAll('.scanner-item').forEach(el => el.classList.remove('selected'));
+    },
+
     // Step 3: Test connection
     prepareTestStep() {
         const info = document.getElementById('test-scanner-info');
+
+        if (this.isFtpReceive) {
+            const ftp = this.ftpConfig;
+            info.innerHTML = `
+                <div class="alert alert-info">FTP Receiver mode - listening on port ${ftp.port}</div>
+                <p class="mt-8" style="font-size: 14px; color: var(--gray-500);">Configure your scanner's <strong>Scan to FTP</strong> with these settings:</p>
+                <div style="padding: 12px; background: var(--gray-50); border-radius: 8px; margin-top: 8px; font-family: monospace; font-size: 14px;">
+                    <div><strong>Server:</strong> (this computer's IP address)</div>
+                    <div><strong>Port:</strong> ${ftp.port}</div>
+                    <div><strong>Username:</strong> ${this.esc(ftp.username)}</div>
+                    <div><strong>Password:</strong> ${this.esc(ftp.password)}</div>
+                    <div><strong>Path:</strong> /</div>
+                </div>
+                <p class="mt-8" style="font-size: 14px; color: var(--gray-500);">No test scan needed. The FTP server will start when you finish the wizard.</p>
+            `;
+            document.getElementById('btn-test-scan').classList.add('hidden');
+            return;
+        }
 
         if (this.isFolderWatch) {
             info.innerHTML = `
@@ -300,10 +347,17 @@ const wizard = {
         let items = [
             { label: 'Scanner', value: s.display_name || s.name || 'None' },
             { label: 'Protocol', value: (s.protocol || '').toUpperCase() || 'N/A' },
-            { label: 'Address', value: s.ip ? `${s.ip}:${s.port}` : 'N/A' },
-            { label: 'Output Folder', value: outputFolder || 'Not set' },
-            { label: 'Paperless-NGX', value: paperlessEnabled ? 'Enabled' : 'Disabled' },
         ];
+
+        if (this.isFtpReceive) {
+            items.push({ label: 'FTP Port', value: String(this.ftpConfig.port) });
+            items.push({ label: 'FTP User', value: this.ftpConfig.username });
+        } else {
+            items.push({ label: 'Address', value: s.ip ? `${s.ip}:${s.port}` : 'N/A' });
+        }
+
+        items.push({ label: 'Output Folder', value: outputFolder || 'Not set' });
+        items.push({ label: 'Paperless-NGX', value: paperlessEnabled ? 'Enabled' : 'Disabled' });
 
         if (paperlessEnabled) {
             const mode = document.getElementById('paperless-mode').value;
@@ -348,6 +402,12 @@ const wizard = {
             folder_watch: {
                 enabled: this.isFolderWatch,
                 watch_folder: this.isFolderWatch ? s.ip : '',
+            },
+            ftp_receive: {
+                enabled: this.isFtpReceive,
+                port: this.ftpConfig ? this.ftpConfig.port : 2121,
+                username: this.ftpConfig ? this.ftpConfig.username : 'scan',
+                password: this.ftpConfig ? this.ftpConfig.password : 'scan',
             },
         };
 

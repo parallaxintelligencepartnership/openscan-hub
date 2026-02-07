@@ -87,6 +87,28 @@
                         </div>
                     </details>
                 </div>
+
+                <div class="mt-16">
+                    <details>
+                        <summary style="cursor: pointer; font-size: 14px; color: var(--gray-500);">Receive via FTP (Scan to FTP replacement)</summary>
+                        <div class="mt-8">
+                            <p style="font-size: 13px; color: var(--gray-500); margin-bottom: 8px;">OpenScanHub can act as an FTP server. Point your scanner's "Scan to FTP" settings here and scans get routed automatically.</p>
+                            <div class="form-group">
+                                <label>FTP Port</label>
+                                <input type="number" id="ftp-port" value="2121" style="width: 120px;">
+                            </div>
+                            <div class="form-group">
+                                <label>Username</label>
+                                <input type="text" id="ftp-username" value="scan" placeholder="scan">
+                            </div>
+                            <div class="form-group">
+                                <label>Password</label>
+                                <input type="text" id="ftp-password" value="scan" placeholder="scan">
+                            </div>
+                            <button class="btn btn-secondary" onclick="wizard.selectFtpReceive()">Use FTP Receiver</button>
+                        </div>
+                    </details>
+                </div>
             </div>
             <div class="step-nav">
                 <button class="btn btn-secondary" onclick="wizard.prevStep()">Back</button>

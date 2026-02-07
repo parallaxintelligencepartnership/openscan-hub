@@ -27,6 +27,7 @@ classifiers = [
 ]
 dependencies = [
     "zeroconf>=0.80.0",
+    "pyftpdlib>=2.0.0",
 ]
 
 [project.optional-dependencies]

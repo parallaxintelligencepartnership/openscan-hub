@@ -70,6 +70,14 @@ def main() -> None:
         from .scanner.folder_watch import start_folder_watcher
         start_folder_watcher(config)
 
+    # Start FTP receiver if configured
+    if config.wizard_completed and config.ftp_receive.enabled:
+        if not config.ftp_receive.staging_dir:
+            from .config import get_config_dir
+            config.ftp_receive.staging_dir = str(get_config_dir() / "ftp_staging")
+        from .scanner.ftp_receive import start_ftp_receiver
+        start_ftp_receiver(config)
+
     # Start web server
     from .web.server import run_server
 

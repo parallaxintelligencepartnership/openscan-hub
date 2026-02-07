@@ -5,7 +5,7 @@ import threading
 
 from ..config import (
     AppConfig, ScannerConfig, OutputConfig, PaperlessConfig,
-    MonitorConfig, save_config, load_config,
+    MonitorConfig, FtpReceiveConfig, save_config, load_config,
 )
 from ..discovery import discover_all, probe_scanner
 from ..output import test_paperless_connection
@@ -204,6 +204,16 @@ def api_save_config(handler, query):
             enabled=True,
             watch_folder=folder_data.get("watch_folder", ""),
         )
+
+    # FTP receiver
+    ftp_data = body.get("ftp_receive", {})
+    config.ftp_receive = FtpReceiveConfig(
+        enabled=ftp_data.get("enabled", False),
+        port=int(ftp_data.get("port", 2121)),
+        username=ftp_data.get("username", "scan"),
+        password=ftp_data.get("password", "scan"),
+        delete_after_routing=ftp_data.get("delete_after_routing", True),
+    )
 
     config.wizard_completed = True
     save_config(config)

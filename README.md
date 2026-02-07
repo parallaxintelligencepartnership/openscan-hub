@@ -24,7 +24,7 @@ Built by [Parallax Intelligence Partnership, LLC](https://parallaxintelligence.a
 
 Most network scanners can scan - but getting those scans **where you actually need them** is the hard part. OpenScanHub solves this:
 
-- **Your scanner** talks eSCL, WSD, or saves to a folder
+- **Your scanner** talks eSCL, WSD, FTP, or saves to a folder
 - **OpenScanHub** catches the scan and routes it
 - **Your documents** land in your folder, NAS, Paperless-NGX, or trigger a Home Assistant automation
 
@@ -32,7 +32,8 @@ No drivers to install. No vendor apps. One setup wizard and you're done.
 
 ## Features
 
-- **Three scanner protocols** - eSCL (AirScan/AirPrint), WSD (Web Services for Devices), and folder watching
+- **Four scanner protocols** - eSCL (AirScan/AirPrint), WSD (Web Services for Devices), FTP receiver, and folder watching
+- **Scan-to-FTP replacement** - Built-in FTP server receives scans pushed from your scanner's control panel
 - **Auto-discovery** - Finds compatible scanners on your network automatically
 - **Paperless-NGX** - Direct API upload or consume folder drop
 - **Home Assistant** - REST commands for scan buttons on your HA dashboard
@@ -75,13 +76,14 @@ Open `http://localhost:8020` in your browser.
 
 ## Supported Scanners
 
-| Protocol | Scanners | Discovery |
-|----------|----------|-----------|
-| **eSCL** (AirScan) | HP, Canon, Epson, Brother, and most printers made after ~2015 | Automatic via mDNS |
-| **WSD** | Xerox, Ricoh, and enterprise MFPs | Automatic via WS-Discovery |
-| **Folder Watch** | Any scanner that saves to a network share | Manual path configuration |
+| Protocol | Scanners | How It Works |
+|----------|----------|--------------|
+| **eSCL** (AirScan) | HP, Canon, Epson, Brother, and most printers made after ~2015 | OpenScanHub pulls scans via HTTP. Auto-discovered via mDNS. |
+| **WSD** | Xerox, Ricoh, and enterprise MFPs | OpenScanHub pulls scans via SOAP. Auto-discovered via WS-Discovery. |
+| **FTP Receiver** | Any scanner with "Scan to FTP" | Scanner pushes to OpenScanHub's built-in FTP server. Drop-in replacement for a standalone FTP server. |
+| **Folder Watch** | Any scanner that saves to a network share | OpenScanHub watches a folder and routes new files automatically. |
 
-Don't see your scanner? If it's on your network and less than 10 years old, it almost certainly supports eSCL. Try the auto-discovery first.
+Don't see your scanner? If it's on your network and less than 10 years old, it almost certainly supports eSCL or Scan-to-FTP. Try the auto-discovery first, or set up the FTP receiver.
 
 ## Home Assistant Integration
 
@@ -153,6 +155,36 @@ automation:
       - action: rest_command.openscan_adf
 ```
 
+## Scan-to-FTP Replacement
+
+If your scanner supports "Scan to FTP" (most enterprise MFPs do), OpenScanHub can completely replace your FTP server. Instead of setting up vsftpd or FileZilla Server, just point your scanner at OpenScanHub.
+
+### Scanner-Side Setup
+
+On your scanner's control panel or web admin, configure the FTP scan destination:
+
+| Setting | Value |
+|---------|-------|
+| **Server/Host** | IP address of the machine running OpenScanHub |
+| **Port** | `2121` (default, configurable) |
+| **Username** | `scan` (default, configurable) |
+| **Password** | `scan` (default, configurable) |
+| **Path/Directory** | `/` |
+| **File Format** | PDF (recommended) or JPEG/TIFF |
+
+That's it. When someone presses "Scan" on the physical scanner and selects the FTP destination, the file lands in OpenScanHub and gets routed to your output folder, Paperless-NGX, or wherever you've configured.
+
+### Docker Note
+
+If running in Docker, expose the FTP ports:
+
+```yaml
+ports:
+  - "8020:8020"    # Web UI
+  - "2121:2121"    # FTP control
+  - "60000-60100:60000-60100"  # FTP passive data
+```
+
 ## Paperless-NGX Integration
 
 OpenScanHub supports two methods of sending scans to Paperless-NGX:
@@ -211,6 +243,7 @@ openscan/
     base.py          # Abstract scanner protocol interface
     escl.py          # eSCL (AirScan) implementation
     wsd.py           # WSD implementation
+    ftp_receive.py   # FTP receiver (Scan-to-FTP replacement)
     folder_watch.py  # Folder watcher implementation
   web/
     server.py        # HTTP server + routing
@@ -230,6 +263,7 @@ openscan/
 | Package | License | Purpose | Required |
 |---------|---------|---------|----------|
 | [zeroconf](https://pypi.org/project/zeroconf/) | Apache 2.0 | mDNS scanner discovery | Yes |
+| [pyftpdlib](https://pypi.org/project/pyftpdlib/) | MIT | Built-in FTP server for Scan-to-FTP | Yes |
 | [pystray](https://pypi.org/project/pystray/) | LGPL v3 | Windows system tray icon | Windows EXE only |
 | [Pillow](https://pypi.org/project/Pillow/) | HPND | Tray icon rendering | Windows EXE only |
 

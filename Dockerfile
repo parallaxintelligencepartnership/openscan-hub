@@ -18,6 +18,6 @@ VOLUME ["/config", "/scans"]
 ENV OPENSCAN_DOCKER=1
 ENV OPENSCAN_CONFIG_DIR=/config
 
-EXPOSE 8020
+EXPOSE 8020 2121 60000-60100
 
 CMD ["python", "-m", "openscan", "--no-browser"]
