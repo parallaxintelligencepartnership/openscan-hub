@@ -37,10 +37,11 @@ dev = ["pyinstaller>=6.0", "pytest>=8.0"]
 openscan = "openscan.main:main"
 
 [project.urls]
-Homepage = "https://github.com/parallaxintelligence/openscan-hub"
-Documentation = "https://github.com/parallaxintelligence/openscan-hub#readme"
-Repository = "https://github.com/parallaxintelligence/openscan-hub"
-Issues = "https://github.com/parallaxintelligence/openscan-hub/issues"
+Homepage = "https://parallaxintelligence.ai"
+Documentation = "https://github.com/parallaxintelligencepartnership/openscan-hub#readme"
+Repository = "https://github.com/parallaxintelligencepartnership/openscan-hub"
+Issues = "https://github.com/parallaxintelligencepartnership/openscan-hub/issues"
+Portal = "https://parallaxintelligence.online"
 
 [tool.setuptools.packages.find]
 include = ["openscan*"]
