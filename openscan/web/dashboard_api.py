@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..config import AppConfig, save_config
+from .. import multipage
 from ..output import generate_filename, save_scan
 from ..scanner.base import ScannerInfo, ScanSettings, ScanSource
 from .server import route, get_config
