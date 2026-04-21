@@ -48,7 +48,7 @@ def get_session(session_id: str) -> Optional[MultiPageSession]:
 		return _sessions.get(session_id)
 
 
-def ensure_pdf(data: bytes) -> bytes:
+def ensure_pdf(data: bytes, resolution: int = 300) -> bytes:
 	"""Convert image data to PDF if needed. Returns PDF bytes."""
 	if data.startswith(b'%PDF-'):
 		return data
@@ -60,7 +60,7 @@ def ensure_pdf(data: bytes) -> bytes:
 		if img.mode in ('RGBA', 'LA', 'P'):
 			img = img.convert('RGB')
 		output = BytesIO()
-		img.save(output, format='PDF', resolution=300)
+		img.save(output, format='PDF', resolution=resolution)
 		pdf_bytes = output.getvalue()
 		logger.info(f'Converted image to PDF: {len(pdf_bytes)} bytes')
 		return pdf_bytes

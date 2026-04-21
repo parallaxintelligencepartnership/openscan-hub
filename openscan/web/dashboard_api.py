@@ -138,16 +138,16 @@ def _do_scan(handler, source: ScanSource) -> None:
     """Execute a scan and save results."""
     global _scan_in_progress
 
-    if _scan_in_progress:
-        handler._send_json({"error": "Scan already in progress"}, status=409)
-        return
-
     config = get_config()
     if not config.scanner.ip:
         handler._send_json({"error": "No scanner configured"}, status=400)
         return
 
-    _scan_in_progress = True
+    with _scan_lock:
+        if _scan_in_progress:
+            handler._send_json({"error": "Scan already in progress"}, status=409)
+            return
+        _scan_in_progress = True
 
     try:
         pdf_data = _execute_scan(source)
@@ -203,7 +203,7 @@ def _execute_scan(source: ScanSource) -> bytes:
     else:
         raise ValueError(f"Unknown protocol: {protocol}")
 
-    return multipage.ensure_pdf(scan_data)
+    return multipage.ensure_pdf(scan_data, resolution=settings.resolution)
 
 
 def _save_pdf(pdf_data: bytes, filename: str) -> dict:
@@ -249,16 +249,16 @@ def api_multipage_scan(handler, query):
         handler._send_json({"error": "Session not found or expired"}, status=404)
         return
 
-    if _scan_in_progress:
-        handler._send_json({"error": "Scan already in progress"}, status=409)
-        return
-
     config = get_config()
     if not config.scanner.ip:
         handler._send_json({"error": "No scanner configured"}, status=400)
         return
 
-    _scan_in_progress = True
+    with _scan_lock:
+        if _scan_in_progress:
+            handler._send_json({"error": "Scan already in progress"}, status=409)
+            return
+        _scan_in_progress = True
 
     try:
         scan_data = _execute_scan(session.source)
