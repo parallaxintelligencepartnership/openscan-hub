@@ -1,2 +1,5 @@
 zeroconf>=0.80.0
 pyftpdlib>=2.0.0
+pypdf>=4.0.0
+PyMuPDF>=1.24.0
+Pillow>=10.0.0

@@ -27,10 +27,13 @@ classifiers = [
 dependencies = [
     "zeroconf>=0.80.0",
     "pyftpdlib>=2.0.0",
+    "pypdf>=4.0.0",
+    "PyMuPDF>=1.24.0",
+    "Pillow>=10.0.0",
 ]
 
 [project.optional-dependencies]
-tray = ["pystray>=0.19", "Pillow>=10.0"]
+tray = ["pystray>=0.19"]
 dev = ["pyinstaller>=6.0", "pytest>=8.0"]
 
 [project.scripts]
