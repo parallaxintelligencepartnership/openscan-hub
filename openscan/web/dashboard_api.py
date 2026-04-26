@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..config import AppConfig, save_config
+from .. import multipage
 from ..output import generate_filename, save_scan
 from ..scanner.base import ScannerInfo, ScanSettings, ScanSource
 from .server import route, get_config
@@ -137,54 +138,29 @@ def _do_scan(handler, source: ScanSource) -> None:
     """Execute a scan and save results."""
     global _scan_in_progress
 
-    if _scan_in_progress:
-        handler._send_json({"error": "Scan already in progress"}, status=409)
-        return
-
     config = get_config()
     if not config.scanner.ip:
         handler._send_json({"error": "No scanner configured"}, status=400)
         return
 
-    _scan_in_progress = True
-    scanner_info = _get_scanner_info(config)
-    settings = ScanSettings(source=source)
+    with _scan_lock:
+        if _scan_in_progress:
+            handler._send_json({"error": "Scan already in progress"}, status=409)
+            return
+        _scan_in_progress = True
 
     try:
-        # Execute scan
-        protocol = config.scanner.protocol
-        if protocol == "escl":
-            from ..scanner.escl import EsclScanner
-            pdf_data = EsclScanner().scan(scanner_info, settings)
-        elif protocol == "wsd":
-            from ..scanner.wsd import WsdScanner
-            pdf_data = WsdScanner().scan(scanner_info, settings)
-        else:
-            handler._send_json({"error": f"Unknown protocol: {protocol}"}, status=400)
-            return
-
-        # Generate filename and save
+        pdf_data = _execute_scan(source)
         filename = generate_filename(config.output.filename_pattern)
+        results = _save_pdf(pdf_data, filename)
 
-        results = save_scan(
-            pdf_data=pdf_data,
-            output_folder=config.output.folder,
-            filename=filename,
-            paperless_consume=config.paperless.consume_folder if config.paperless.enabled and config.paperless.mode == "consume" else None,
-            paperless_api_url=config.paperless.api_url if config.paperless.enabled and config.paperless.mode == "api" else None,
-            paperless_api_token=config.paperless.api_token if config.paperless.enabled and config.paperless.mode == "api" else None,
-            paperless_tags=config.paperless.default_tags if config.paperless.enabled else None,
-        )
-
-        # Add to history
-        entry = {
+        add_to_history({
             "filename": filename,
             "timestamp": datetime.now().isoformat(),
             "size_bytes": len(pdf_data),
             "source": source.value,
             "results": results,
-        }
-        add_to_history(entry)
+        })
 
         handler._send_json({
             "success": True,
@@ -209,3 +185,206 @@ def _get_scanner_info(config: AppConfig) -> ScannerInfo:
         protocol=config.scanner.protocol,
         model=config.scanner.model,
     )
+
+
+def _execute_scan(source: ScanSource) -> bytes:
+    """Execute scan and return PDF data."""
+    config = get_config()
+    scanner_info = _get_scanner_info(config)
+    settings = ScanSettings(source=source)
+
+    protocol = config.scanner.protocol
+    if protocol == "escl":
+        from ..scanner.escl import EsclScanner
+        scan_data = EsclScanner().scan(scanner_info, settings)
+    elif protocol == "wsd":
+        from ..scanner.wsd import WsdScanner
+        scan_data = WsdScanner().scan(scanner_info, settings)
+    else:
+        raise ValueError(f"Unknown protocol: {protocol}")
+
+    return multipage.ensure_pdf(scan_data, resolution=settings.resolution)
+
+
+def _save_pdf(pdf_data: bytes, filename: str) -> dict:
+    """Save PDF with paperless integration."""
+    config = get_config()
+    return save_scan(
+        pdf_data=pdf_data,
+        output_folder=config.output.folder,
+        filename=filename,
+        paperless_consume=config.paperless.consume_folder if config.paperless.enabled and config.paperless.mode == "consume" else None,
+        paperless_api_url=config.paperless.api_url if config.paperless.enabled and config.paperless.mode == "api" else None,
+        paperless_api_token=config.paperless.api_token if config.paperless.enabled and config.paperless.mode == "api" else None,
+        paperless_tags=config.paperless.default_tags if config.paperless.enabled else None,
+    )
+
+
+# --- Multi-page scanning endpoints ---
+
+@route("POST", "/api/multipage/start")
+def api_multipage_start(handler, query):
+    """Start a new multi-page scanning session."""
+    body = handler.read_json_body()
+    source_str = body.get("source", "Platen")
+    source = ScanSource.ADF if source_str == "Feeder" else ScanSource.FLATBED
+    session_id = multipage.create_session(source)
+    handler._send_json({"session_id": session_id})
+
+
+@route("POST", "/api/multipage/scan")
+def api_multipage_scan(handler, query):
+    """Scan a page and add to multi-page session."""
+    global _scan_in_progress
+
+    body = handler.read_json_body()
+    session_id = body.get("session_id")
+
+    if not session_id:
+        handler._send_json({"error": "Missing session_id"}, status=400)
+        return
+
+    session = multipage.get_session(session_id)
+    if not session:
+        handler._send_json({"error": "Session not found or expired"}, status=404)
+        return
+
+    config = get_config()
+    if not config.scanner.ip:
+        handler._send_json({"error": "No scanner configured"}, status=400)
+        return
+
+    with _scan_lock:
+        if _scan_in_progress:
+            handler._send_json({"error": "Scan already in progress"}, status=409)
+            return
+        _scan_in_progress = True
+
+    try:
+        scan_data = _execute_scan(session.source)
+        page_count = multipage.add_page(session_id, scan_data)
+        handler._send_json({
+            "success": True,
+            "page_count": page_count,
+            "page_index": page_count - 1,
+            "size_bytes": len(scan_data),
+        })
+    except Exception as e:
+        logger.exception("Multipage scan failed")
+        handler._send_json({"success": False, "error": str(e)}, status=500)
+    finally:
+        _scan_in_progress = False
+
+
+@route("GET", "/api/multipage/thumbnail/")
+def api_multipage_thumbnail(handler, query, path_suffix=""):
+    """Get JPEG thumbnail for a page in a multi-page session."""
+    # path_suffix is "session_id/page_index"
+    parts = path_suffix.strip("/").split("/")
+    if len(parts) != 2:
+        handler._send_json({"error": "Invalid path"}, status=400)
+        return
+
+    session_id = parts[0]
+    try:
+        page_index = int(parts[1])
+    except ValueError:
+        handler._send_json({"error": "Invalid page index"}, status=400)
+        return
+
+    try:
+        jpeg_bytes = multipage.get_page_thumbnail(session_id, page_index)
+        handler.send_response(200)
+        handler.send_header("Content-Type", "image/jpeg")
+        handler.send_header("Content-Length", str(len(jpeg_bytes)))
+        handler.send_header("Cache-Control", "max-age=300")
+        handler.end_headers()
+        handler.wfile.write(jpeg_bytes)
+    except ValueError as e:
+        handler._send_json({"error": str(e)}, status=404)
+    except IndexError as e:
+        handler._send_json({"error": str(e)}, status=404)
+    except Exception as e:
+        logger.exception("Thumbnail generation failed")
+        handler._send_json({"error": str(e)}, status=500)
+
+
+@route("POST", "/api/multipage/save")
+def api_multipage_save(handler, query):
+    """Merge pages and save the multi-page document."""
+    body = handler.read_json_body()
+    session_id = body.get("session_id")
+
+    if not session_id:
+        handler._send_json({"error": "Missing session_id"}, status=400)
+        return
+
+    session = multipage.get_session(session_id)
+    if not session:
+        handler._send_json({"error": "Session not found or expired"}, status=404)
+        return
+
+    if not session.pages:
+        handler._send_json({"error": "No pages to save"}, status=400)
+        return
+
+    config = get_config()
+
+    try:
+        page_count = len(session.pages)
+        pdf_data = multipage.merge_pages(session_id)
+        filename = generate_filename(config.output.filename_pattern)
+        results = _save_pdf(pdf_data, filename)
+
+        add_to_history({
+            "filename": filename,
+            "timestamp": datetime.now().isoformat(),
+            "size_bytes": len(pdf_data),
+            "source": session.source.value,
+            "page_count": page_count,
+            "results": results,
+        })
+
+        multipage.delete_session(session_id)
+
+        handler._send_json({
+            "success": True,
+            "filename": filename,
+            "page_count": page_count,
+            "size_bytes": len(pdf_data),
+            "results": results,
+        })
+    except Exception as e:
+        logger.exception("Failed to save multipage document")
+        handler._send_json({"success": False, "error": str(e)}, status=500)
+
+
+@route("POST", "/api/multipage/cancel")
+def api_multipage_cancel(handler, query):
+    """Cancel and discard a multi-page session."""
+    body = handler.read_json_body()
+    session_id = body.get("session_id")
+
+    if not session_id:
+        handler._send_json({"error": "Missing session_id"}, status=400)
+        return
+
+    multipage.delete_session(session_id)
+    handler._send_json({"success": True})
+
+
+@route("GET", "/api/multipage/status/")
+def api_multipage_status(handler, query, path_suffix=""):
+    """Get status of a multi-page session."""
+    session_id = path_suffix.strip("/")
+    if not session_id:
+        handler._send_json({"error": "Missing session_id"}, status=400)
+        return
+
+    info = multipage.get_session_info(session_id)
+
+    if not info:
+        handler._send_json({"error": "Session not found or expired"}, status=404)
+        return
+
+    handler._send_json(info)

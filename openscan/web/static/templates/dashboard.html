@@ -27,13 +27,19 @@
 
         <!-- Scan Buttons -->
         <div class="scan-buttons mb-16">
-            <button class="btn btn-primary btn-scan" id="btn-adf" onclick="dashboard.scan('adf')">
-                Document Feeder
-            </button>
-            <div style="height: 12px;"></div>
-            <button class="btn btn-primary btn-scan" id="btn-flatbed" onclick="dashboard.scan('flatbed')">
-                Flatbed Glass
-            </button>
+            <div class="scan-button-group" id="btn-adf-group">
+                <button class="btn btn-primary btn-scan" id="btn-adf" onclick="dashboard.scan('adf')">
+                    Document Feeder
+                </button>
+            </div>
+            <div class="scan-button-group">
+                <button class="btn btn-primary btn-scan" id="btn-flatbed" onclick="dashboard.scan('flatbed')">
+                    Flatbed Glass
+                </button>
+                <button class="btn btn-secondary btn-scan-multi" onclick="dashboard.startMultipage('flatbed')">
+                    Multi Page
+                </button>
+            </div>
         </div>
 
         <!-- Recent Scans -->
@@ -54,6 +60,40 @@
             <div class="spinner spinner-large" style="margin: 0 auto;"></div>
             <p style="margin-top: 16px; font-weight: 600;">Scanning...</p>
             <p style="font-size: 14px; color: var(--gray-500); margin-top: 4px;" id="scan-status-text">Please wait</p>
+        </div>
+    </div>
+
+    <!-- Multi-page modal -->
+    <div class="multipage-overlay" id="multipage-overlay">
+        <div class="multipage-modal">
+            <header class="multipage-header">
+                <h2>Multi-Page Scan</h2>
+                <span class="multipage-count" id="multipage-count">0 pages scanned</span>
+            </header>
+
+            <div class="multipage-preview-area" id="multipage-preview-area">
+                <div class="empty-state">
+                    <div class="icon">&#128196;</div>
+                    <p>No pages yet</p>
+                </div>
+            </div>
+
+            <div class="multipage-actions">
+                <button class="btn btn-primary" id="btn-scan-page" onclick="dashboard.scanMultipagePage()">
+                    Scan Page
+                </button>
+                <button class="btn btn-success" id="btn-save-multipage" onclick="dashboard.saveMultipage()" disabled>
+                    Save Document
+                </button>
+                <button class="btn btn-secondary" onclick="dashboard.cancelMultipage()">
+                    Cancel
+                </button>
+            </div>
+
+            <div class="multipage-scanning" id="multipage-scanning">
+                <div class="spinner spinner-large"></div>
+                <p>Scanning page...</p>
+            </div>
         </div>
     </div>
 

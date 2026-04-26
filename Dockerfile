@@ -5,7 +5,10 @@ LABEL description="OpenScanHub - Universal network scanner bridge"
 
 WORKDIR /app
 
-# Install dependencies
+# Install system dependencies for PyMuPDF
+RUN apk add --no-cache libstdc++
+
+# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

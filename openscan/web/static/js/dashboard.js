@@ -2,6 +2,7 @@
 
 const dashboard = {
     statusInterval: null,
+    multipageSession: null,
 
     init() {
         this.refreshStatus();
@@ -47,7 +48,7 @@ const dashboard = {
 
             // Show/hide scan buttons based on capabilities
             const sources = scanner.sources || ['Platen'];
-            document.getElementById('btn-adf').classList.toggle('hidden', !sources.includes('Feeder'));
+            document.getElementById('btn-adf-group').classList.toggle('hidden', !sources.includes('Feeder'));
 
         } catch (err) {
             console.error('Status refresh failed:', err);
@@ -140,6 +141,150 @@ const dashboard = {
         const div = document.createElement('div');
         div.textContent = String(str);
         return div.innerHTML;
+    },
+
+    // --- Multi-page scanning ---
+
+    async startMultipage(type) {
+        const source = type === 'adf' ? 'Feeder' : 'Platen';
+        try {
+            const resp = await fetch('/api/multipage/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ source }),
+            });
+            const data = await resp.json();
+            if (data.session_id) {
+                this.multipageSession = {
+                    sessionId: data.session_id,
+                    source,
+                    pageCount: 0,
+                };
+                this.showMultipageModal();
+                this.updateMultipagePreview();
+            } else {
+                this.toast(`Failed to start session: ${data.error}`, 'error');
+            }
+        } catch (err) {
+            this.toast(`Error: ${err.message}`, 'error');
+        }
+    },
+
+    async scanMultipagePage() {
+        if (!this.multipageSession) return;
+
+        const scanning = document.getElementById('multipage-scanning');
+        const scanBtn = document.getElementById('btn-scan-page');
+        const saveBtn = document.getElementById('btn-save-multipage');
+
+        scanning.classList.add('active');
+        scanBtn.disabled = true;
+        saveBtn.disabled = true;
+
+        try {
+            const resp = await fetch('/api/multipage/scan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: this.multipageSession.sessionId }),
+            });
+            const data = await resp.json();
+
+            if (data.success) {
+                this.multipageSession.pageCount = data.page_count;
+                this.updateMultipagePreview();
+                this.toast(`Page ${data.page_count} scanned (${this.formatSize(data.size_bytes)})`, 'success');
+            } else {
+                this.toast(`Scan failed: ${data.error}`, 'error');
+            }
+        } catch (err) {
+            this.toast(`Error: ${err.message}`, 'error');
+        } finally {
+            scanning.classList.remove('active');
+            scanBtn.disabled = false;
+            saveBtn.disabled = !this.multipageSession || this.multipageSession.pageCount === 0;
+        }
+    },
+
+    async saveMultipage() {
+        if (!this.multipageSession || this.multipageSession.pageCount === 0) return;
+
+        const scanning = document.getElementById('multipage-scanning');
+        scanning.classList.add('active');
+
+        try {
+            const resp = await fetch('/api/multipage/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: this.multipageSession.sessionId }),
+            });
+            const data = await resp.json();
+
+            if (data.success) {
+                this.toast(`Saved: ${data.filename} (${data.page_count} pages, ${this.formatSize(data.size_bytes)})`, 'success');
+                this.hideMultipageModal();
+                this.refreshHistory();
+            } else {
+                this.toast(`Save failed: ${data.error}`, 'error');
+                scanning.classList.remove('active');
+            }
+        } catch (err) {
+            this.toast(`Error: ${err.message}`, 'error');
+            scanning.classList.remove('active');
+        }
+    },
+
+    async cancelMultipage() {
+        if (this.multipageSession) {
+            try {
+                await fetch('/api/multipage/cancel', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: this.multipageSession.sessionId }),
+                });
+            } catch (err) {
+                console.error('Cancel failed:', err);
+            }
+        }
+        this.hideMultipageModal();
+    },
+
+    showMultipageModal() {
+        document.getElementById('multipage-overlay').classList.add('active');
+    },
+
+    hideMultipageModal() {
+        document.getElementById('multipage-overlay').classList.remove('active');
+        document.getElementById('multipage-scanning').classList.remove('active');
+        this.multipageSession = null;
+        document.getElementById('btn-save-multipage').disabled = true;
+    },
+
+    updateMultipagePreview() {
+        const area = document.getElementById('multipage-preview-area');
+        const countEl = document.getElementById('multipage-count');
+        const saveBtn = document.getElementById('btn-save-multipage');
+        const count = this.multipageSession?.pageCount || 0;
+
+        countEl.textContent = `${count} page${count !== 1 ? 's' : ''} scanned`;
+        saveBtn.disabled = count === 0;
+
+        if (count === 0) {
+            area.innerHTML = `
+                <div class="empty-state">
+                    <div class="icon">&#128196;</div>
+                    <p>No pages yet</p>
+                </div>
+            `;
+            return;
+        }
+
+        const sessionId = this.multipageSession.sessionId;
+        area.innerHTML = Array.from({ length: count }, (_, i) => `
+            <div class="multipage-thumb">
+                <img src="/api/multipage/thumbnail/${sessionId}/${i}" alt="Page ${i + 1}">
+                <span class="thumb-label">Page ${i + 1}</span>
+            </div>
+        `).join('');
     },
 };
 
