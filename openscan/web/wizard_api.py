@@ -66,6 +66,7 @@ def api_test_scanner(handler, query):
         port=int(body.get("port", 80)),
         protocol=body.get("protocol", "escl"),
         model=body.get("model", ""),
+        path=body.get("path", ""),
     )
 
     protocol = body.get("protocol", "escl")
@@ -109,6 +110,7 @@ def api_test_scan(handler, query):
         ip=body.get("ip", ""),
         port=int(body.get("port", 80)),
         protocol=body.get("protocol", "escl"),
+        path=body.get("path", ""),
     )
 
     source = body.get("source", "Platen")
@@ -169,6 +171,7 @@ def api_save_config(handler, query):
         protocol=scanner_data.get("protocol", "escl"),
         name=scanner_data.get("name", ""),
         model=scanner_data.get("model", ""),
+        path=scanner_data.get("path", ""),
     )
 
     # Output

@@ -184,6 +184,7 @@ def _get_scanner_info(config: AppConfig) -> ScannerInfo:
         port=config.scanner.port,
         protocol=config.scanner.protocol,
         model=config.scanner.model,
+        path=config.scanner.path,
     )
 
 

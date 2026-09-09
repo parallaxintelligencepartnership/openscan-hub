@@ -19,6 +19,7 @@ class ScannerConfig:
     protocol: str = "escl"
     name: str = ""
     model: str = ""
+    path: str = ""  # WSD: resolved scan service path
 
 
 @dataclass
@@ -150,6 +151,7 @@ def _dict_to_config(data: dict) -> AppConfig:
             protocol=s.get("protocol", "escl"),
             name=s.get("name", ""),
             model=s.get("model", ""),
+            path=s.get("path", ""),
         )
 
     if "output" in data:

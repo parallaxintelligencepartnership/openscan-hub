@@ -270,6 +270,7 @@ const wizard = {
                     ip: this.selectedScanner.ip,
                     port: this.selectedScanner.port,
                     protocol: this.selectedScanner.protocol,
+                    path: this.selectedScanner.path || '',
                     source: 'Platen',
                 }),
             });
@@ -384,6 +385,7 @@ const wizard = {
                 protocol: s.protocol || 'escl',
                 name: s.name || '',
                 model: s.model || s.display_name || '',
+                path: s.path || '',
             },
             output: {
                 folder: document.getElementById('output-folder').value.trim(),

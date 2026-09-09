@@ -34,6 +34,7 @@ class ScannerInfo:
     model: str = ""
     sources: list[ScanSource] = field(default_factory=list)
     uuid: str = ""
+    path: str = ""  # WSD: resolved scan service path, e.g. "/wsd/scanservice.cgi"
 
     @property
     def base_url(self) -> str:
@@ -52,6 +53,7 @@ class ScannerInfo:
             "model": self.model,
             "sources": [s.value for s in self.sources],
             "uuid": self.uuid,
+            "path": self.path,
             "display_name": self.display_name,
         }
 
@@ -74,8 +76,8 @@ class ScannerCapabilities:
     sources: list[ScanSource] = field(default_factory=list)
     formats: list[str] = field(default_factory=lambda: ["application/pdf"])
     color_modes: list[str] = field(default_factory=lambda: ["RGB24"])
-    max_width: int = 2550  # 8.5" at 300dpi
-    max_height: int = 3300  # 11" at 300dpi
+    max_width: int = 0  # native scan units; 0 = unknown/unreported
+    max_height: int = 0  # native scan units; 0 = unknown/unreported
     duplex: bool = False
 
     def to_dict(self) -> dict:
