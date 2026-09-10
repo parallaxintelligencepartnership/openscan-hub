@@ -5,6 +5,7 @@ and many Windows-friendly devices. Uses SOAP over HTTP.
 """
 
 import logging
+import os
 import socket
 import struct
 import time
@@ -73,6 +74,21 @@ class WsdScanner(ScannerProtocol):
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
             sock.settimeout(timeout)
             sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 4)
+
+            # By default the kernel sends multicast out via whatever
+            # interface holds the default route. On hosts with multiple
+            # NICs (e.g. a k8s pod with a CNI eth0 plus a second NIC
+            # bridged onto the LAN via Multus/macvlan) that's often the
+            # wrong one - the probe never reaches the scanner's network.
+            # OPENSCAN_DISCOVERY_IP pins both the outgoing multicast
+            # interface and the socket's source address so replies come
+            # back on the same interface.
+            bind_ip = os.environ.get("OPENSCAN_DISCOVERY_IP", "")
+            if bind_ip:
+                sock.setsockopt(
+                    socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(bind_ip)
+                )
+                sock.bind((bind_ip, 0))
 
             # Send probe
             sock.sendto(probe_xml.encode("utf-8"), (WSD_MULTICAST, WSD_PORT))
