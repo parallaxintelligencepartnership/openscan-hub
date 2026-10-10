@@ -22,7 +22,7 @@ class DeliveryResult:  # same shape lane C returns
 @pytest.fixture
 def save_result(monkeypatch):
     holder = {"value": DeliveryResult(ok=True, saved_paths=["/scans/a.pdf"])}
-    monkeypatch.setattr(dashboard_api, "save_scan", lambda **kw: holder["value"])
+    monkeypatch.setattr(dashboard_api, "save_scan_for_config", lambda cfg, pdf, name: holder["value"])
     return holder
 
 

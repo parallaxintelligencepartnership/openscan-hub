@@ -1,15 +1,17 @@
 """Dashboard API: status, scanning, history, multi-page sessions, health."""
 
 import logging
+import os
 import threading
 import time
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Any, Optional
 
 from .. import __version__
 from .. import multipage
 from ..config import AppConfig
-from ..output import generate_filename, save_scan
+from ..output import generate_filename, save_scan_for_config
 from ..scanner.base import (
     ScannerInfo, ScanSettings, ScanSource, release_scan, scan_lock, try_acquire_scan,
 )
@@ -44,6 +46,11 @@ class ScannerBusy(Exception):
 # --- helpers -------------------------------------------------------------
 
 def add_to_history(entry: dict) -> None:
+    """Record a scan. Entries carrying only "results" (a DeliveryResult dict)
+    get the flat ok/queued/saved_paths/errors keys the dashboard reads."""
+    results = entry.get("results")
+    if "ok" not in entry and results is not None:
+        entry = {**entry, **delivery_summary(results)}
     with _history_lock:
         _scan_history.insert(0, entry)
         del _scan_history[MAX_HISTORY:]
@@ -81,6 +88,8 @@ def delivery_summary(result: Any) -> dict:
     New shape: DeliveryResult (ok, saved_paths, errors, queued). Old shape: a dict
     with "saved" and "errors" lists. Either way the answer is the same dict.
     """
+    if isinstance(result, dict) and "ok" in result:  # DeliveryResult.to_dict()
+        result = SimpleNamespace(**result)
     if hasattr(result, "ok"):
         return {
             "ok": bool(result.ok),
@@ -202,7 +211,8 @@ def queue_pending() -> list[dict]:
         return []
 
 
-def _scan_settings(config: AppConfig, source: ScanSource, resolution: Optional[int] = None) -> ScanSettings:
+def _scan_settings(config: AppConfig, source: ScanSource, resolution: Optional[int] = None,
+                   remove_blank_pages: Optional[bool] = None) -> ScanSettings:
     s = config.scan
     return ScanSettings(
         source=source,
@@ -210,29 +220,47 @@ def _scan_settings(config: AppConfig, source: ScanSource, resolution: Optional[i
         color_mode=s.color_mode,
         duplex=bool(s.duplex and source == ScanSource.ADF),
         page_size=s.page_size,
-        remove_blank_pages=s.remove_blank_pages,
+        remove_blank_pages=s.remove_blank_pages if remove_blank_pages is None else remove_blank_pages,
     )
 
 
-def execute_scan(config: AppConfig, source: ScanSource, resolution: Optional[int] = None) -> bytes:
+def execute_scan(config: AppConfig, source: ScanSource, resolution: Optional[int] = None,
+                 remove_blank_pages: Optional[bool] = None) -> bytes:
     """Drive the scanner and return the raw document. Caller must hold the scan lock."""
-    settings = _scan_settings(config, source, resolution)
+    settings = _scan_settings(config, source, resolution, remove_blank_pages)
     return _impl(config.scanner.protocol).scan(_scanner_info(config), settings)
 
 
 def save_document(config: AppConfig, pdf_data: bytes, filename: str) -> dict:
-    p = config.paperless
-    api = p.enabled and p.mode == "api"
-    result = save_scan(
-        pdf_data=pdf_data,
-        output_folder=config.output.folder,
-        filename=filename,
-        paperless_consume=p.consume_folder if p.enabled and p.mode == "consume" else None,
-        paperless_api_url=p.api_url if api else None,
-        paperless_api_token=p.api_token if api else None,
-        paperless_tags=p.tags if p.enabled else None,
-    )
-    return delivery_summary(result)
+    """Deliver to every enabled destination. Returns delivery_summary() plus
+    "filename", the name actually written (it can differ after a collision)."""
+    summary = delivery_summary(save_scan_for_config(config, pdf_data, filename))
+    if summary["saved_paths"]:
+        filename = os.path.basename(summary["saved_paths"][0])
+    summary["filename"] = filename
+    return summary
+
+
+def _history_entry(summary: dict, size: int, source: str, **extra) -> dict:
+    results = {k: summary[k] for k in ("ok", "saved_paths", "errors", "queued")}
+    return {
+        "filename": summary["filename"],
+        "timestamp": datetime.now().isoformat(),
+        "size_bytes": size,
+        "source": source,
+        **extra,
+        **results,
+        "results": results,
+    }
+
+
+def _page_count(pdf_data: bytes, fallback: int) -> int:
+    try:
+        from pypdf import PdfReader
+        from io import BytesIO
+        return len(PdfReader(BytesIO(pdf_data)).pages)
+    except Exception:
+        return fallback
 
 
 def scan_message(summary: dict, filename: str) -> str:
@@ -259,20 +287,14 @@ def run_scan(source: ScanSource, config: Optional[AppConfig] = None) -> dict:
         release_scan()
     filename = generate_filename(config.output.filename_pattern)
     summary = save_document(config, pdf_data, filename)
-    entry = {
-        "filename": filename,
-        "timestamp": datetime.now().isoformat(),
-        "size_bytes": len(pdf_data),
-        "source": source.value,
-        **summary,
-    }
+    entry = _history_entry(summary, len(pdf_data), source.value)
     add_to_history(entry)
     return {
         "success": summary["ok"],
-        "filename": filename,
         "size_bytes": len(pdf_data),
-        "message": scan_message(summary, filename),
+        "message": scan_message(summary, summary["filename"]),
         **summary,
+        "results": entry["results"],
     }
 
 
@@ -302,15 +324,9 @@ def start_scan_async(source: ScanSource, wait: float = 5.0) -> bool:
                 release_scan()
             filename = generate_filename(config.output.filename_pattern)
             summary = save_document(config, pdf_data, filename)
-            add_to_history({
-                "filename": filename,
-                "timestamp": datetime.now().isoformat(),
-                "size_bytes": len(pdf_data),
-                "source": source.value,
-                **summary,
-            })
+            add_to_history(_history_entry(summary, len(pdf_data), source.value))
             if not summary["ok"]:
-                logger.warning(scan_message(summary, filename))
+                logger.warning(scan_message(summary, summary["filename"]))
         except Exception as e:
             logger.error("Scan failed: %s", e)
 
@@ -435,24 +451,20 @@ def api_multipage_scan(handler, query):
     config = get_config()
     if scanner_mode(config) != "scanner":
         raise BadRequest(NO_DRIVE_MESSAGE)
-    if not try_acquire_scan(timeout=0):
+    try:
+        # One page per scan; blank pages are dropped when the session is saved.
+        page_count = multipage.scan_page(
+            session_id, lambda: execute_scan(config, session.source, remove_blank_pages=False))
+    except multipage.ScannerBusyError:
         handler._send_json({"success": False, "error": BUSY_MESSAGE}, status=409)
         return
-    try:
-        scan_data = execute_scan(config, session.source)
+    except ValueError:
+        raise BadRequest("Session not found or expired", status=404)
     except Exception as e:
         logger.exception("Multipage scan failed")
         handler._send_json({"success": False, "error": str(e)}, status=500)
         return
-    finally:
-        release_scan()
-    page_count = multipage.add_page(session_id, scan_data)
-    handler._send_json({
-        "success": True,
-        "page_count": page_count,
-        "page_index": page_count - 1,
-        "size_bytes": len(scan_data),
-    })
+    handler._send_json({"success": True, "page_count": page_count, "page_index": page_count - 1})
 
 
 @route("GET", "/api/multipage/thumbnail/")
@@ -487,28 +499,23 @@ def api_multipage_save(handler, query):
         raise BadRequest("No pages to save")
     config = get_config()
     page_count = len(session.pages)
-    pdf_data = multipage.merge_pages(session_id)
+    pdf_data = multipage.merge_pages(session_id, remove_blank_pages=config.scan.remove_blank_pages)
+    page_count = _page_count(pdf_data, page_count)
     filename = generate_filename(config.output.filename_pattern)
     summary = save_document(config, pdf_data, filename)
-    add_to_history({
-        "filename": filename,
-        "timestamp": datetime.now().isoformat(),
-        "size_bytes": len(pdf_data),
-        "source": session.source.value,
-        "page_count": page_count,
-        **summary,
-    })
+    entry = _history_entry(summary, len(pdf_data), session.source.value, page_count=page_count)
+    add_to_history(entry)
     # The pages are in the saved, queued or failed file now; on a hard failure
     # keep the session so the user can try again.
     if summary["ok"] or summary["queued"]:
         multipage.delete_session(session_id)
     handler._send_json({
         "success": summary["ok"],
-        "filename": filename,
         "page_count": page_count,
         "size_bytes": len(pdf_data),
-        "message": scan_message(summary, filename),
+        "message": scan_message(summary, summary["filename"]),
         **summary,
+        "results": entry["results"],
     })
 
 
