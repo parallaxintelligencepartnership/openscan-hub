@@ -5,6 +5,7 @@ import errno
 import logging
 import os
 import platform
+import signal
 import sys
 import threading
 import webbrowser
@@ -121,6 +122,7 @@ def run(argv: Optional[list[str]] = None) -> int:
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
         logger.info("Opening browser to %s", url)
 
+    _stop_on_sigterm()
     try:
         if _is_frozen() and platform.system() == "Windows":
             threading.Thread(target=server.serve_forever, daemon=True, name="web").start()
@@ -139,6 +141,18 @@ def run(argv: Optional[list[str]] = None) -> int:
 
 def main() -> None:
     raise SystemExit(run())
+
+
+def _stop_on_sigterm() -> None:
+    """Treat SIGTERM (docker stop, kill) like Ctrl+C so services stop cleanly."""
+    def handler(signum, frame):
+        raise KeyboardInterrupt
+
+    if threading.current_thread() is threading.main_thread() and hasattr(signal, "SIGTERM"):
+        try:
+            signal.signal(signal.SIGTERM, handler)
+        except (ValueError, OSError):
+            pass
 
 
 def _should_open_browser() -> bool:
