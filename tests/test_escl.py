@@ -250,3 +250,16 @@ def test_offline_status():
 
 def test_ipv6_base_url():
     assert ScannerInfo(name="x", ip="fe80::1", port=80, protocol="escl").base_url == "http://[fe80::1]:80"
+
+
+def test_discover_all_survives_a_hung_protocol(monkeypatch):
+    import time as _t
+    from openscan import discovery
+    from openscan.scanner import escl as escl_mod, wsd as wsd_mod
+
+    monkeypatch.setattr(escl_mod.EsclScanner, "discover",
+                        lambda self, timeout: [ScannerInfo(name="a", ip="10.0.0.5", port=80, protocol="escl")])
+    monkeypatch.setattr(wsd_mod.WsdScanner, "discover", lambda self, timeout: _t.sleep(2) or [])
+    monkeypatch.setattr(discovery, "DISCOVERY_GRACE", 0.2)
+    found = discovery.discover_all(timeout=0.1)
+    assert [s.ip for s in found] == ["10.0.0.5"]

@@ -2,11 +2,15 @@
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FuturesTimeout
 from typing import Optional
 
 from .scanner.base import ScannerInfo
 
 logger = logging.getLogger(__name__)
+
+# Extra seconds allowed past the per-protocol timeout before giving up.
+DISCOVERY_GRACE = 5.0
 
 
 def discover_all(timeout: float = 5.0, protocols: Optional[list[str]] = None) -> list[ScannerInfo]:
@@ -25,7 +29,8 @@ def discover_all(timeout: float = 5.0, protocols: Optional[list[str]] = None) ->
     scanners: list[ScannerInfo] = []
     futures = {}
 
-    with ThreadPoolExecutor(max_workers=len(protocols)) as pool:
+    pool = ThreadPoolExecutor(max_workers=len(protocols))
+    try:
         for proto in protocols:
             if proto == "escl":
                 from .scanner.escl import EsclScanner
@@ -34,14 +39,21 @@ def discover_all(timeout: float = 5.0, protocols: Optional[list[str]] = None) ->
                 from .scanner.wsd import WsdScanner
                 futures[pool.submit(WsdScanner().discover, timeout)] = "wsd"
 
-        for future in as_completed(futures, timeout=timeout + 5):
-            proto = futures[future]
-            try:
-                found = future.result()
-                logger.info("Found %d scanners via %s", len(found), proto)
-                scanners.extend(found)
-            except Exception as e:
-                logger.warning("Discovery failed for %s: %s", proto, e)
+        try:
+            for future in as_completed(futures, timeout=timeout + DISCOVERY_GRACE):
+                proto = futures[future]
+                try:
+                    found = future.result()
+                    logger.info("Found %d scanners via %s", len(found), proto)
+                    scanners.extend(found)
+                except Exception as e:
+                    logger.warning("Discovery failed for %s: %s", proto, e)
+        except FuturesTimeout:
+            slow = [p for f, p in futures.items() if not f.done()]
+            logger.warning("Discovery did not finish in time for: %s", ", ".join(slow))
+    finally:
+        # Do not wait for a protocol that is stuck; its socket timeouts end it.
+        pool.shutdown(wait=False, cancel_futures=True)
 
     return _deduplicate(scanners)
 
