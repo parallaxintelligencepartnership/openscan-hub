@@ -185,7 +185,8 @@ sign in once with the **access token**. You can see the token:
 - in the log when OpenScanHub starts.
 
 The Docker image listens on the network by default, so any device other than
-the server itself needs the token. Settings has **Regenerate token** if it
+the server itself needs the token (`docker logs openscan-hub` shows it at
+startup, or run `docker exec openscan-hub openscan --show-token`). Settings has **Regenerate token** if it
 ever leaks.
 
 ## Home Assistant (optional)
@@ -211,7 +212,9 @@ Settings are stored in `openscan.json`:
 
 Set `OPENSCAN_CONFIG_DIR` to use a different folder. `OPENSCAN_BIND`,
 `OPENSCAN_PORT` and `OPENSCAN_TOKEN` override the listen address, port and
-access token without changing the file.
+access token without changing the file. If other devices reach OpenScanHub by
+a plain host name (not an IP address or a `.local` name), list it in
+`OPENSCAN_ALLOWED_HOSTS`, for example `OPENSCAN_ALLOWED_HOSTS=nas,nas.lan`.
 
 ## Troubleshooting
 
