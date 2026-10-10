@@ -149,6 +149,16 @@ def folder_error_message(folder: str, exc: OSError) -> str:
     return f"Could not save to {folder}: {reason}."
 
 
+def written_name(saved_paths, default: str) -> str:
+    """File name actually written: the first saved file path, skipping
+    Paperless document URLs. `default` when only Paperless received it."""
+    for p in saved_paths or []:
+        p = str(p)
+        if "://" not in p:
+            return os.path.basename(p)
+    return default
+
+
 def save_to_folder(pdf_data: bytes, folder: str, filename: str) -> str:
     """Write `pdf_data` into `folder` atomically and return the final path.
 

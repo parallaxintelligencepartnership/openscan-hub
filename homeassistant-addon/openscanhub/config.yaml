@@ -17,7 +17,6 @@ panel_title: Scanner
 # host network.
 host_network: true
 map:
-  - config:rw
   - share:rw
   - media:rw
 options:

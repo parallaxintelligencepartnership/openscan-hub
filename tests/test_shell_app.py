@@ -312,3 +312,30 @@ def test_tray_menu_items(monkeypatch, app_config):
     labels = [i.text for i in built["menu"].items if isinstance(i, Item)]
     assert labels == ["Open dashboard", "Scan from feeder", "Scan from flatbed", "Show access token",
                       "Open log folder", "Start with Windows", "Quit"]
+
+
+def test_token_never_reaches_the_log(config_dir, monkeypatch, caplog):
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(1)
+    port = sock.getsockname()[1]
+    try:
+        with caplog.at_level(logging.DEBUG):
+            app_main.run(["--no-browser", "--port", str(port)])
+    finally:
+        sock.close()
+    token = load_config().web.api_token
+    assert token
+    assert not any(token in r.getMessage() for r in caplog.records)
+    assert any("--show-token" in r.getMessage() for r in caplog.records)
+    log_file = config_dir / "logs" / "openscan.log"
+    if log_file.exists():
+        assert token not in log_file.read_text()
+
+
+def test_request_log_hides_query_token(live_server, caplog):
+    from conftest import TOKEN
+    with caplog.at_level(logging.DEBUG, logger="openscan.web.server"):
+        live_server.get(f"/api/ha/status?token={TOKEN}")
+    assert caplog.records
+    assert not any(TOKEN in r.getMessage() for r in caplog.records)

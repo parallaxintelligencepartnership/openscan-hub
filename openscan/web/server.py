@@ -19,6 +19,7 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import socket
 import threading
 from dataclasses import dataclass
@@ -87,9 +88,18 @@ def session_value(token: str) -> str:
     return hmac.new(token.encode("utf-8"), b"openscan-session-v1", hashlib.sha256).hexdigest()
 
 
+_TOKEN_IN_URL = re.compile(r"([?&])token=[^&\s\"]*")
+
 # Headers a reverse proxy adds. A loopback peer sending any of them is a proxy
 # forwarding someone else's request.
 PROXY_HEADERS = ("X-Forwarded-For", "X-Real-IP", "Forwarded", "X-Forwarded-Host")
+
+
+def secret_equal(supplied: str, expected: str) -> bool:
+    """Constant-time compare that never raises (compare_digest refuses
+    non-ASCII str, which used to drop the connection)."""
+    return hmac.compare_digest(supplied.encode("utf-8", "surrogatepass"),
+                               expected.encode("utf-8", "surrogatepass"))
 
 
 def _is_loopback(ip: str) -> bool:
@@ -250,7 +260,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         morsel = jar.get(SESSION_COOKIE)
         if morsel is None:
             return False
-        return hmac.compare_digest(morsel.value, session_value(get_config().web.api_token))
+        return secret_equal(morsel.value, session_value(get_config().web.api_token))
 
     def token_ok(self, query: Optional[dict] = None) -> bool:
         token = get_config().web.api_token
@@ -263,7 +273,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 supplied = auth[7:].strip()
         if not supplied and query is not None:
             supplied = (query.get("token") or [""])[0]
-        return bool(supplied) and hmac.compare_digest(supplied, token)
+        return bool(supplied) and secret_equal(supplied, token)
 
     def _authorized(self, query: dict, rt: Route) -> bool:
         if self.is_trusted_proxy():
@@ -468,7 +478,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         return data
 
     def log_message(self, format, *args):
-        logger.debug("%s %s", self.peer_ip(), format % args)
+        logger.debug("%s %s", self.peer_ip(), _TOKEN_IN_URL.sub(r"\1token=<hidden>", format % args))
 
 
 class OpenScanServer(ThreadingHTTPServer):

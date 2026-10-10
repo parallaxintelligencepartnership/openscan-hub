@@ -205,3 +205,40 @@ def test_delivery_ok_duck_typing():
     assert not monitor._delivery_ok(Delivery(ok=False))
     assert monitor._delivery_ok({"saved": [{"path": "x"}], "errors": []})
     assert not monitor._delivery_ok({"saved": [], "errors": [{"error": "x"}]})
+
+
+def test_wsd_without_feeder_state_logs_once(setup, caplog):
+    fake, saved, cfg = setup
+    cfg.scanner.protocol = "wsd"
+    fake.adf = AdfState.UNKNOWN
+    caplog.set_level(logging.INFO, logger="openscan.monitor")
+    monitor.start_monitor(cfg)
+    assert _wait_for(lambda: fake.polls >= 5)
+    notes = [r for r in caplog.records if "WSD" in r.getMessage()]
+    assert len(notes) == 1
+    assert notes[0].levelno == logging.WARNING
+    assert "feeder" in notes[0].getMessage()
+
+
+def test_scanner_lock_is_released_before_delivery(setup, monkeypatch):
+    # Delivery can wait a minute for Paperless; dashboard scans must not get
+    # "busy" all that time.
+    fake, saved, cfg = setup
+    lock_free_during_delivery = []
+
+    def deliver(cfg_, pdf, name):
+        free = []  # ask from another thread: the lock may be reentrant
+        t = threading.Thread(target=lambda: free.append(scan_lock.acquire(blocking=False)
+                                                        and (scan_lock.release() or True)))
+        t.start()
+        t.join(2)
+        lock_free_during_delivery.append(free[0])
+        return Delivery(ok=True)
+
+    monkeypatch.setattr(monitor, "save_scan_for_config", deliver)
+    monitor.start_monitor(cfg)
+    assert _wait_for(lambda: fake.polls >= 2)
+    fake.adf = AdfState.LOADED
+    assert _wait_for(lambda: len(lock_free_during_delivery) == 1)
+    assert lock_free_during_delivery == [True]
+    assert fake.lock_free_during_scan == [False]

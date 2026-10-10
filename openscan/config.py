@@ -182,19 +182,46 @@ def load_config(path: Optional[Path] = None) -> AppConfig:
         except OSError as e:
             logger.warning("Could not persist generated secrets to %s: %s", config_path, e)
 
-    # Environment overrides (not persisted)
+    # Environment overrides (not persisted; see save_config)
     if os.environ.get("OPENSCAN_BIND"):
-        config.web.bind = os.environ["OPENSCAN_BIND"]
+        set_override(config, "web", "bind", os.environ["OPENSCAN_BIND"])
     if os.environ.get("OPENSCAN_PORT"):
         try:
-            config.web.port = int(os.environ["OPENSCAN_PORT"])
+            set_override(config, "web", "port", int(os.environ["OPENSCAN_PORT"]))
         except ValueError:
             logger.warning("Ignoring invalid OPENSCAN_PORT=%r", os.environ["OPENSCAN_PORT"])
     if os.environ.get("OPENSCAN_TOKEN"):
-        config.web.api_token = os.environ["OPENSCAN_TOKEN"]
+        set_override(config, "web", "api_token", os.environ["OPENSCAN_TOKEN"])
     if os.environ.get("OPENSCAN_FTP_PASSIVE_ADDRESS"):
-        config.ftp_receive.passive_address = os.environ["OPENSCAN_FTP_PASSIVE_ADDRESS"].strip()
+        set_override(config, "ftp_receive", "passive_address",
+                     os.environ["OPENSCAN_FTP_PASSIVE_ADDRESS"].strip())
     return config
+
+
+_OVERRIDES_ATTR = "_overrides"
+
+
+def set_override(config: AppConfig, section: str, key: str, value) -> None:
+    """Apply a value from the environment or command line for this run only.
+
+    The value the file had is remembered, and save_config writes that value
+    back as long as the setting still equals the override, so a later
+    settings save never copies OPENSCAN_TOKEN, OPENSCAN_BIND or --port into
+    the file. If the user changes the setting, their value is saved."""
+    overrides = config.__dict__.setdefault(_OVERRIDES_ATTR, {})
+    obj = getattr(config, section) if section else config
+    file_value = overrides.get((section, key), (None, getattr(obj, key)))[1]
+    setattr(obj, key, value)
+    overrides[(section, key)] = (value, file_value)
+
+
+def _without_overrides(config: AppConfig) -> dict:
+    data = asdict(config)
+    for (section, key), (value, file_value) in getattr(config, _OVERRIDES_ATTR, {}).items():
+        target = data[section] if section else data
+        if target.get(key) == value:
+            target[key] = file_value
+    return data
 
 
 def _keep_broken_copy(config_path: Path) -> None:
@@ -211,7 +238,7 @@ def save_config(config: AppConfig, path: Optional[Path] = None) -> None:
     """Save config to JSON file atomically, readable only by the owner."""
     config_path = path or get_config_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    data = asdict(config)
+    data = _without_overrides(config)
     fd, tmp_name = tempfile.mkstemp(
         dir=str(config_path.parent), prefix=config_path.name + ".", suffix=".tmp"
     )

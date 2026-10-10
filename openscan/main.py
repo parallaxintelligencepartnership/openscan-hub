@@ -12,7 +12,7 @@ import webbrowser
 from typing import Optional
 
 from . import __app_name__, __version__
-from .config import _is_docker, get_config_dir, get_config_path, load_config
+from .config import _is_docker, get_config_dir, get_config_path, load_config, set_override
 from .logging_setup import get_log_dir, setup_logging
 
 logger = logging.getLogger(__name__)
@@ -63,9 +63,9 @@ def run(argv: Optional[list[str]] = None) -> int:
 
     config = load_config()
     if args.port:
-        config.web.port = args.port
+        set_override(config, "web", "port", args.port)
     if args.log_level:
-        config.log_level = args.log_level
+        set_override(config, "", "log_level", args.log_level)
     setup_logging(config)
 
     if args.show_token:
@@ -77,7 +77,9 @@ def run(argv: Optional[list[str]] = None) -> int:
     log_dir = get_log_dir()
     logger.info("Log folder: %s", log_dir if log_dir else "(not writable, console only)")
     logger.info("Web UI: bind %s, port %d", config.web.bind, config.web.port)
-    logger.info("Access token (other devices sign in with this): %s", config.web.api_token)
+    # Never log the token itself: logs get shared in bug reports.
+    logger.info("Access token for other devices: see Settings, or run "
+                "'openscan --show-token' (in Docker: 'python -m openscan --show-token')")
 
     lock = None
     if not _is_docker():

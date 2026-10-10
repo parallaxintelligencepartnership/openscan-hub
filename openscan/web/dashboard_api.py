@@ -1,7 +1,6 @@
 """Dashboard API: status, scanning, history, multi-page sessions, health."""
 
 import logging
-import os
 import threading
 import time
 from datetime import datetime
@@ -11,7 +10,7 @@ from typing import Any, Optional
 from .. import __version__
 from .. import multipage
 from ..config import AppConfig
-from ..output import generate_filename, save_scan_for_config
+from ..output import generate_filename, save_scan_for_config, written_name
 from ..scanner.base import (
     ScannerInfo, ScanSettings, ScanSource, release_scan, scan_lock, try_acquire_scan,
 )
@@ -235,9 +234,7 @@ def save_document(config: AppConfig, pdf_data: bytes, filename: str) -> dict:
     """Deliver to every enabled destination. Returns delivery_summary() plus
     "filename", the name actually written (it can differ after a collision)."""
     summary = delivery_summary(save_scan_for_config(config, pdf_data, filename))
-    if summary["saved_paths"]:
-        filename = os.path.basename(summary["saved_paths"][0])
-    summary["filename"] = filename
+    summary["filename"] = written_name(summary["saved_paths"], filename)
     return summary
 
 

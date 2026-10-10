@@ -187,13 +187,17 @@ sign in once with the **access token**. You can see the token:
 
 - in the tray menu: **Show access token** (Windows app),
 - on the Settings page,
-- by running `openscan --show-token`,
-- in the log when OpenScanHub starts.
+- by running `openscan --show-token`.
+
+The token is never written to the log, so a log is safe to share in a bug
+report.
 
 The Docker image listens on the network by default, so any device other than
-the server itself needs the token (`docker logs openscan-hub` shows it at
-startup, or run `docker exec openscan-hub openscan --show-token`). Settings has **Regenerate token** if it
-ever leaks.
+the server itself needs the token (run
+`docker exec openscan-hub python -m openscan --show-token`). In the default
+bridge mode this includes a browser on the Docker host itself, because Docker
+forwards its requests from the bridge address. Settings has **Regenerate
+token** if it ever leaks.
 
 **Behind a reverse proxy.** A browser on the computer running OpenScanHub is
 signed in automatically. A request that arrives through a reverse proxy

@@ -189,3 +189,13 @@ def test_local_autologin_can_be_disabled(live_server, monkeypatch):
     assert r.status == 302
     assert r.headers.get("Set-Cookie") is None
     assert live_server.get("/login").status == 200
+
+
+def test_non_ascii_token_is_just_wrong(live_server):
+    live_server.set_peer(LAN_PEER)
+    r = live_server.get("/api/config", headers={"X-OpenScan-Token": "é" * 8})
+    assert r.status == 401
+    r = live_server.get("/dashboard", cookie=f"{SESSION_COOKIE}=éé")
+    assert r.status == 302
+    r = live_server.post("/api/login", {"token": "éè"})
+    assert r.status == 401

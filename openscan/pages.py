@@ -6,6 +6,7 @@ Rendering uses pypdfium2 (Apache-2.0/BSD). PyMuPDF is no longer used.
 import logging
 import os
 import tempfile
+import threading
 from io import BytesIO
 from pathlib import Path
 from typing import Union
@@ -78,9 +79,19 @@ def _as_stream(pdf: PdfSource):
     return str(pdf)
 
 
+# pypdfium2 (PDFium) is not thread-safe, and thumbnails (web threads) and
+# blank-page checks (scan threads) can render at the same time.
+_pdfium_lock = threading.Lock()
+
+
 def _render(pdf: PdfSource, page_index: int, scale: float = None,
             max_px: int = None, width: int = None) -> Image.Image:
     """Render one page to a PIL image. Exactly one sizing option is used."""
+    with _pdfium_lock:
+        return _render_locked(pdf, page_index, scale, max_px, width)
+
+
+def _render_locked(pdf: PdfSource, page_index: int, scale, max_px, width) -> Image.Image:
     import pypdfium2 as pdfium
 
     src = bytes(pdf) if isinstance(pdf, (bytes, bytearray)) else str(pdf)

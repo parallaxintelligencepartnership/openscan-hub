@@ -139,3 +139,83 @@ def test_queued_copy_gets_normal_file_mode(tmp_path, clock, monkeypatch):
     q.add(filename="a.pdf", destinations=[("folder", str(tmp_path / "out"))], pdf_data=PDF)
     [entry] = q.pending()
     assert stat.S_IMODE(os.stat(entry["file"]).st_mode) == 0o644
+
+
+def test_concurrent_retries_deliver_once(tmp_path, clock, monkeypatch):
+    # A "Retry" click racing the background loop must not save two copies.
+    import os
+    import threading
+
+    from openscan import output
+    q = make(tmp_path, clock)
+    out = tmp_path / "out"
+    [eid] = q.add(filename="a.pdf", destinations=[("folder", str(out))], pdf_data=PDF)
+    real = output.deliver_to
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow(*a, **k):
+        started.set()
+        release.wait(5)
+        return real(*a, **k)
+
+    monkeypatch.setattr(output, "deliver_to", slow)
+    first = threading.Thread(target=q.retry_now, args=(eid,))
+    first.start()
+    assert started.wait(5)
+    # While the first attempt is in flight the entry is marked on disk ...
+    on_disk = json.loads((tmp_path / "retry_queue.json").read_text())["entries"][0]
+    assert on_disk.get("in_flight")
+    # ... and a second attempt does nothing.
+    assert q.retry_now(eid) is False
+    clock.now += 10 * DAILY
+    assert q.run_due() == 0
+    release.set()
+    first.join(5)
+    assert sorted(os.listdir(out)) == ["a.pdf"]
+    assert q.pending() == []
+
+
+def test_in_flight_mark_is_cleared_after_a_crash(tmp_path, clock):
+    q = make(tmp_path, clock)
+    [eid] = q.add(filename="a.pdf", destinations=[("folder", str(tmp_path / "out"))], pdf_data=PDF)
+    data = json.loads((tmp_path / "retry_queue.json").read_text())
+    data["entries"][0]["in_flight"] = True
+    (tmp_path / "retry_queue.json").write_text(json.dumps(data))
+    q2 = make(tmp_path, clock)
+    assert q2.retry_now(eid) is True
+
+
+def test_restart_during_a_slow_attempt_leaves_one_loop(tmp_path, clock, monkeypatch):
+    # stop() gives up waiting after STOP_JOIN seconds; the old loop must
+    # still exit once its attempt ends instead of running beside the new one.
+    import threading
+
+    from openscan import output
+    q = make(tmp_path, clock)
+    monkeypatch.setattr(q, "STOP_JOIN", 0.1)
+    q.add(filename="a.pdf", destinations=[("folder", str(tmp_path / "out"))], pdf_data=PDF)
+    clock.now += DAILY
+    started, release = threading.Event(), threading.Event()
+    real = output.deliver_to
+
+    def slow(*a, **k):
+        started.set()
+        release.wait(5)
+        return real(*a, **k)
+
+    monkeypatch.setattr(output, "deliver_to", slow)
+    q.start(None)
+    first = q._thread
+    assert started.wait(5)
+    q.stop()
+    assert first.is_alive()  # still delivering
+    q.start(None)
+    release.set()
+    first.join(5)
+    try:
+        assert not first.is_alive()
+        loops = [t for t in threading.enumerate() if t.name == "retry-queue" and t.is_alive()]
+        assert loops == [q._thread]
+    finally:
+        q.stop()

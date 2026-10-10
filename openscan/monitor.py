@@ -7,13 +7,12 @@ multipage session is in use.
 """
 
 import logging
-import os
 import threading
 from datetime import datetime
 from typing import Optional
 
 from .config import AppConfig
-from .output import generate_filename, save_scan_for_config
+from .output import generate_filename, save_scan_for_config, written_name
 from .scanner.base import (
     AdfState,
     ScannerInfo,
@@ -114,6 +113,7 @@ def _monitor_loop(stop: threading.Event) -> None:
     scanner_info = None
     prev_adf: Optional[AdfState] = None  # None = no baseline yet
     problem: Optional[str] = None  # last logged problem, to log once per change
+    no_feeder_state_logged = False
     backoff = 0.0
 
     def report(kind: Optional[str], msg: str = "", *args) -> None:
@@ -142,6 +142,7 @@ def _monitor_loop(stop: threading.Event) -> None:
                                        protocol=sc.protocol, path=sc.path)
             prev_adf = None
             backoff = 0.0
+            no_feeder_state_logged = False
 
         if impl is None:
             report("unsupported", "ADF monitor: no network scanner set up (protocol %r)", sc.protocol)
@@ -164,6 +165,13 @@ def _monitor_loop(stop: threading.Event) -> None:
             else:
                 backoff = 0.0
                 adf = status.adf_state
+                if (adf == AdfState.UNKNOWN and sc.protocol == "wsd"
+                        and not no_feeder_state_logged):
+                    no_feeder_state_logged = True
+                    logger.warning(
+                        "ADF monitor: this scanner uses WSD, and WSD does not report whether "
+                        "paper is in the document feeder, so automatic feeder scanning will "
+                        "not start by itself. Use the Scan button on the dashboard instead.")
                 if adf == AdfState.JAMMED:
                     report("jam", "ADF monitor: the document feeder reports a paper jam")
                 else:
@@ -196,10 +204,14 @@ def _try_auto_scan(config: AppConfig, scanner_info: ScannerInfo, impl) -> bool:
         if status.adf_state != AdfState.LOADED or status.state != ScannerState.IDLE:
             return False
         logger.info("Auto-scanning from the document feeder")
-        _auto_scan(config, scanner_info, impl)
-        return True
+        pdf_data = _auto_scan_pages(config, scanner_info, impl)
     finally:
         release_scan()
+    # Deliver without the scanner lock: Paperless can take a minute, and
+    # dashboard scans should not be refused as "busy" meanwhile.
+    if pdf_data is not None:
+        _deliver_auto_scan(config, pdf_data)
+    return True
 
 
 def _delivery_ok(result) -> bool:
@@ -212,7 +224,14 @@ def _delivery_ok(result) -> bool:
 
 
 def _auto_scan(config: AppConfig, scanner_info: ScannerInfo, scanner_impl) -> None:
-    """Execute an automatic feeder scan and deliver it. Caller holds scan_lock."""
+    """Scan from the feeder and deliver it. Caller holds scan_lock."""
+    pdf_data = _auto_scan_pages(config, scanner_info, scanner_impl)
+    if pdf_data is not None:
+        _deliver_auto_scan(config, pdf_data)
+
+
+def _auto_scan_pages(config: AppConfig, scanner_info: ScannerInfo, scanner_impl):
+    """Scan from the feeder. Caller holds scan_lock. Returns PDF bytes or None."""
     d = config.scan
     settings = ScanSettings(
         source=ScanSource.ADF,
@@ -223,11 +242,14 @@ def _auto_scan(config: AppConfig, scanner_info: ScannerInfo, scanner_impl) -> No
         remove_blank_pages=d.remove_blank_pages,
     )
     try:
-        pdf_data = scanner_impl.scan(scanner_info, settings)
+        return scanner_impl.scan(scanner_info, settings)
     except Exception as e:
         logger.error("Auto-scan failed: %s", e)
-        return
+        return None
 
+
+def _deliver_auto_scan(config: AppConfig, pdf_data: bytes) -> None:
+    """Save a feeder scan and add it to the history. Needs no scanner lock."""
     filename = generate_filename(config.output.filename_pattern)
     try:
         result = save_scan_for_config(config, pdf_data, filename)
@@ -235,9 +257,7 @@ def _auto_scan(config: AppConfig, scanner_info: ScannerInfo, scanner_impl) -> No
         logger.error("Auto-scan %s could not be saved: %s", filename, e)
         return
 
-    saved_paths = list(getattr(result, "saved_paths", None) or [])
-    if saved_paths:
-        filename = os.path.basename(saved_paths[0])
+    filename = written_name(getattr(result, "saved_paths", None), filename)
     if _delivery_ok(result):
         logger.info("Auto-scan saved: %s (%d bytes)", filename, len(pdf_data))
     else:

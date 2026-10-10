@@ -99,3 +99,22 @@ def test_routes_new_file_once_and_stops(tmp_path):
 def test_stop_without_start():
     stop_folder_watcher()
     assert not folder_watcher_running()
+
+
+def test_refuses_same_folder_reached_by_another_path(tmp_path, monkeypatch):
+    # Docker can mount one host folder at both /scans and /watch: the paths
+    # differ and resolve() cannot see through a bind mount. Simulate that with
+    # a symlink and a path check that does not resolve links.
+    import os
+
+    from openscan.scanner import folder_watch
+    real = tmp_path / "share"
+    (real / "in").mkdir(parents=True)
+    alias = tmp_path / "alias"
+    alias.symlink_to(real, target_is_directory=True)
+    monkeypatch.setattr(folder_watch, "_norm", lambda p: os.path.normpath(str(p)))
+    cfg = cfg_for(tmp_path, alias, real)
+    assert start_folder_watcher(cfg) is False
+    assert "scans folder" in folder_watcher_error()
+    cfg = cfg_for(tmp_path, alias / "in", real)  # inside, by another path
+    assert start_folder_watcher(cfg) is False

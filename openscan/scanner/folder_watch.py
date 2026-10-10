@@ -94,6 +94,30 @@ def _norm(path: str) -> str:
     return p
 
 
+def _dir_ids(path: str) -> list[tuple[int, int]]:
+    """(st_dev, st_ino) of the folder and each existing parent, innermost first."""
+    ids = []
+    p = Path(path).expanduser().absolute()
+    if not p.is_dir():
+        return ids  # a folder that does not exist yet has no identity
+    for candidate in (p, *p.parents):
+        try:
+            st = os.stat(candidate)
+        except OSError:
+            continue
+        if st.st_ino:  # 0 on file systems without inode numbers
+            ids.append((st.st_dev, st.st_ino))
+    return ids
+
+
+def _same_or_inside_by_identity(a: str, b: str) -> bool:
+    """Catch the same folder reached by two paths (bind mounts, mapped drives)."""
+    ida, idb = _dir_ids(a), _dir_ids(b)
+    if not ida or not idb:
+        return False
+    return ida[0] in idb or idb[0] in ida
+
+
 def _overlaps(a: str, b: str) -> bool:
     """True if the folders are equal or one is inside the other."""
     na, nb = _norm(a), _norm(b)
@@ -102,8 +126,10 @@ def _overlaps(a: str, b: str) -> bool:
     try:
         common = os.path.commonpath([na, nb])
     except ValueError:  # different drives on Windows
-        return False
-    return common in (na, nb)
+        common = None
+    if common in (na, nb):
+        return True
+    return _same_or_inside_by_identity(a, b)
 
 
 def check_watch_folder(config: AppConfig) -> Optional[str]:

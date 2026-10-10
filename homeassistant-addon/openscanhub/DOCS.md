@@ -41,8 +41,10 @@ need it.
 ## Network
 
 The add-on uses the host network so it can find scanners automatically and
-receive FTP uploads. The web page is only reachable through Home Assistant
-(ingress); you do not need to open port 8020.
+receive FTP uploads. Home Assistant shows the web page through ingress, so
+you do not need to open port 8020. Because of the host network, port 8020 on
+your Home Assistant machine also answers other devices on your network, but
+only after they sign in with the access token.
 
 ## Where things are stored
 
@@ -59,4 +61,7 @@ Raspberry Pi 4 or 5 running the 64-bit OS).
 
 Open an issue at
 https://github.com/parallaxintelligencepartnership/openscan-hub/issues
-and include the add-on log (Log tab).
+and include the add-on log (Log tab). The log never contains your access
+token or the FTP password. Logs from older versions of OpenScanHub printed
+the access token at startup: if you ever posted one of those, use
+**Regenerate token** in OpenScanHub's settings.

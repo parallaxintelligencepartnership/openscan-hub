@@ -33,3 +33,11 @@ def test_addon_config_is_found_and_matches_the_version():
         assert key in keys
     assert keys["version"] == __version__
     assert f"OPENSCAN_VERSION={__version__}" in (ADDON / "Dockerfile").read_text()
+
+
+def test_addon_does_not_map_the_home_assistant_config_folder():
+    # Settings live in /data; mapping HA's config folder would expose
+    # secrets.yaml to the add-on for nothing.
+    text = (ADDON / "config.yaml").read_text()
+    assert "config:rw" not in text and "config:ro" not in text
+    assert "/data/" in (ADDON / "run.sh").read_text()

@@ -46,6 +46,8 @@ def _iso(ts: float) -> str:
 
 
 class RetryQueue:
+    STOP_JOIN = 5.0  # seconds stop() waits for the loop thread
+
     def __init__(self, state_path: Path, files_dir: Path, clock: Callable[[], float] = time.time):
         self.state_path = Path(state_path)
         self.files_dir = Path(files_dir)
@@ -54,8 +56,9 @@ class RetryQueue:
         self._entries: list[dict] = []
         self._config = None
         self._thread: Optional[threading.Thread] = None
-        self._stop = threading.Event()
+        self._stop = threading.Event()  # belongs to the current loop thread
         self._wake = threading.Event()
+        self._in_flight: set[str] = set()  # ids being delivered right now
         self._load()
 
     # --- persistence ---------------------------------------------------
@@ -65,6 +68,8 @@ class RetryQueue:
             data = json.loads(self.state_path.read_text(encoding="utf-8"))
             entries = data.get("entries", []) if isinstance(data, dict) else []
             self._entries = [e for e in entries if isinstance(e, dict) and "id" in e]
+            for e in self._entries:
+                e.pop("in_flight", None)  # left by a process that stopped mid-delivery
         except FileNotFoundError:
             self._entries = []
         except (OSError, ValueError) as e:
@@ -146,8 +151,36 @@ class RetryQueue:
 
     # --- retrying ------------------------------------------------------
 
+    def _claim(self, entry_id: str, due_only: bool = False) -> Optional[dict]:
+        """Mark an entry as being delivered and persist that, so no other
+        thread delivers it at the same time. Returns a copy, or None if the
+        entry is gone, already in flight, or (due_only) not due yet."""
+        with self._lock:
+            if entry_id in self._in_flight:
+                return None
+            current = next((e for e in self._entries if e["id"] == entry_id), None)
+            if current is None:
+                return None
+            if due_only and (current.get("status") != STATUS_PENDING
+                             or (current.get("next_try_ts") or 0) > self.clock()):
+                return None
+            self._in_flight.add(entry_id)
+            current["in_flight"] = True
+            try:
+                self._save()
+            except OSError as e:
+                logger.warning("Could not save the retry queue before delivery: %s", e)
+            return dict(current)
+
     def _attempt(self, entry: dict) -> bool:
-        """Try one entry once. Caller holds no lock while delivering."""
+        """Try one claimed entry once. Caller holds no lock while delivering."""
+        try:
+            return self._deliver(entry)
+        finally:
+            with self._lock:
+                self._in_flight.discard(entry["id"])
+
+    def _deliver(self, entry: dict) -> bool:
         from .output import DeliveryError, deliver_to
 
         try:
@@ -176,6 +209,7 @@ class RetryQueue:
             current = next((e for e in self._entries if e["id"] == entry["id"]), None)
             if current is None:
                 return ok
+            current.pop("in_flight", None)
             if ok:
                 self._entries.remove(current)
                 logger.info("Retry delivered %s to %s", current["filename"], current["destination"])
@@ -200,8 +234,7 @@ class RetryQueue:
 
     def retry_now(self, entry_id: str) -> bool:
         """Retry one entry immediately (also works on failed entries)."""
-        with self._lock:
-            entry = next((dict(e) for e in self._entries if e["id"] == entry_id), None)
+        entry = self._claim(entry_id)
         if entry is None:
             return False
         return self._attempt(entry)
@@ -212,13 +245,21 @@ class RetryQueue:
             ids = [e["id"] for e in self._entries]
         return sum(1 for i in ids if self.retry_now(i))
 
-    def run_due(self) -> int:
+    def run_due(self, stop: Optional[threading.Event] = None) -> int:
         """Retry entries whose time has come. Returns how many were delivered."""
+        stop = stop or self._stop
         now = self.clock()
         with self._lock:
-            due = [dict(e) for e in self._entries
+            due = [e["id"] for e in self._entries
                    if e.get("status") == STATUS_PENDING and (e.get("next_try_ts") or 0) <= now]
-        return sum(1 for e in due if not self._stop.is_set() and self._attempt(e))
+        delivered = 0
+        for entry_id in due:
+            if stop.is_set():
+                break
+            entry = self._claim(entry_id, due_only=True)
+            if entry is not None and self._attempt(entry):
+                delivered += 1
+        return delivered
 
     def _seconds_until_next(self) -> float:
         now = self.clock()
@@ -231,12 +272,14 @@ class RetryQueue:
 
     # --- thread --------------------------------------------------------
 
-    def _loop(self) -> None:
-        while not self._stop.is_set():
+    def _loop(self, stop: threading.Event) -> None:
+        while not stop.is_set():
             try:
-                self.run_due()
+                self.run_due(stop)
             except Exception:
                 logger.exception("Retry queue error")
+            if stop.is_set():
+                break
             self._wake.wait(self._seconds_until_next())
             self._wake.clear()
 
@@ -244,10 +287,13 @@ class RetryQueue:
         """Start the background thread (idempotent). Also refreshes config."""
         with self._lock:
             self._config = config
-            if self._thread and self._thread.is_alive():
+            if self._thread and self._thread.is_alive() and not self._stop.is_set():
                 return
-            self._stop.clear()
-            self._thread = threading.Thread(target=self._loop, name="retry-queue", daemon=True)
+            # A fresh event per thread: an old loop still finishing a slow
+            # attempt after stop() keeps its own (set) event and exits.
+            self._stop = threading.Event()
+            self._thread = threading.Thread(target=self._loop, args=(self._stop,),
+                                            name="retry-queue", daemon=True)
             self._thread.start()
 
     def stop(self) -> None:
@@ -256,9 +302,10 @@ class RetryQueue:
             self._stop.set()
             self._wake.set()
         if thread:
-            thread.join(timeout=5)
+            thread.join(timeout=self.STOP_JOIN)
         with self._lock:
-            self._thread = None
+            if self._thread is thread:
+                self._thread = None
 
     def running(self) -> bool:
         return bool(self._thread and self._thread.is_alive())

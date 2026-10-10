@@ -101,3 +101,19 @@ def test_drop_blank_pages_keeps_normal_file_mode(tmp_path, monkeypatch):
     p.write_bytes(_pdf([_text_page(), _noisy_blank()]))
     assert pages.drop_blank_pages(p) == 1
     assert stat.S_IMODE(os.stat(p).st_mode) == 0o644
+
+
+def test_pdfium_calls_are_serialized(monkeypatch):
+    # pypdfium2 is not thread-safe; thumbnails and blank-page checks run on
+    # different threads, so every render must hold the module lock.
+    import pypdfium2 as pdfium
+    held = []
+    real = pdfium.PdfDocument
+
+    def spy(*a, **k):
+        held.append(pages._pdfium_lock.locked())
+        return real(*a, **k)
+
+    monkeypatch.setattr(pdfium, "PdfDocument", spy)
+    pages._render(_pdf([_text_page()]), 0, max_px=100)
+    assert held == [True]

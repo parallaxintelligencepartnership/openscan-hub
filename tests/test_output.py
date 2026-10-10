@@ -268,3 +268,19 @@ def test_file_mode_fix_is_best_effort(tmp_path, monkeypatch):
     assert save_to_folder(b"%PDF-1.4\n", str(tmp_path), "scan.pdf")
     monkeypatch.delattr(fileperm.os, "fchmod", raising=False)
     assert save_to_folder(b"%PDF-1.4\n", str(tmp_path), "scan.pdf")
+
+
+def test_written_name_ignores_paperless_urls():
+    from openscan.output import written_name
+    assert written_name(["/scans/scan_2.pdf"], "scan.pdf") == "scan_2.pdf"
+    assert written_name(["http://pl:8000/documents/5/details"], "scan.pdf") == "scan.pdf"
+    assert written_name(["http://pl:8000/documents/5/details", "/scans/a_2.pdf"], "a.pdf") == "a_2.pdf"
+    assert written_name([], "scan.pdf") == "scan.pdf"
+
+
+def test_dashboard_history_name_with_paperless_only(monkeypatch):
+    from openscan.web import dashboard_api
+    monkeypatch.setattr(dashboard_api, "save_scan_for_config", lambda cfg, data, name: DeliveryResult(
+        ok=True, saved_paths=["http://pl:8000/documents/5/details"]))
+    summary = dashboard_api.save_document(None, b"%PDF", "scan_001.pdf")
+    assert summary["filename"] == "scan_001.pdf"

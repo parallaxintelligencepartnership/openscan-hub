@@ -93,3 +93,48 @@ def test_env_overrides_not_persisted(tmp_path, monkeypatch):
     assert saved["web"]["bind"] == "127.0.0.1"
     assert saved["web"]["port"] == 8020
     assert saved["web"]["api_token"] != "envtoken"
+
+
+def test_env_overrides_not_persisted_on_later_save(tmp_path, monkeypatch):
+    import copy
+
+    from openscan.config import save_config
+    p = tmp_path / "c.json"
+    monkeypatch.setenv("OPENSCAN_BIND", "0.0.0.0")
+    monkeypatch.setenv("OPENSCAN_PORT", "9999")
+    monkeypatch.setenv("OPENSCAN_TOKEN", "envtoken")
+    monkeypatch.setenv("OPENSCAN_FTP_PASSIVE_ADDRESS", "192.168.1.9")
+    cfg = load_config(p)
+    file_token = json.loads(p.read_text())["web"]["api_token"]
+    new = copy.deepcopy(cfg)  # what a settings save does
+    new.output.folder = "/somewhere"
+    save_config(new, p)
+    saved = json.loads(p.read_text())
+    assert saved["output"]["folder"] == "/somewhere"
+    assert saved["web"]["bind"] == "127.0.0.1"
+    assert saved["web"]["port"] == 8020
+    assert saved["web"]["api_token"] == file_token != "envtoken"
+    assert saved["ftp_receive"]["passive_address"] == ""
+    # A value the user really changed is saved (the env still wins at load).
+    new.web.port = 8030
+    save_config(new, p)
+    assert json.loads(p.read_text())["web"]["port"] == 8030
+
+
+def test_cli_port_not_persisted(config_dir, monkeypatch):
+    from openscan import main as app_main
+    from openscan.config import save_config
+    seen = {}
+
+    def fake_create_server(cfg):
+        save_config(cfg)  # what a settings save during this run does
+        seen["port"] = cfg.web.port
+        raise OSError("stop here")
+
+    monkeypatch.setattr("openscan.web.server.create_server", fake_create_server)
+    monkeypatch.setattr(app_main, "show_error_box", lambda *a: None, raising=False)
+    app_main.run(["--no-browser", "--port", "8031", "--log-level", "DEBUG"])
+    assert seen["port"] == 8031
+    saved = json.loads((config_dir / "openscan.json").read_text())
+    assert saved["web"]["port"] == 8020
+    assert saved["log_level"] != "DEBUG"

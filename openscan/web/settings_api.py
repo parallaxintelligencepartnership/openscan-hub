@@ -1,7 +1,6 @@
 """Settings, sign-in, token, recent problems and retry queue endpoints."""
 
 import copy
-import hmac
 import ipaddress
 import logging
 import os
@@ -16,7 +15,7 @@ from typing import Any
 from .. import services
 from ..config import AppConfig, _is_docker, save_config
 from ..logging_setup import get_log_dir, recent_errors
-from .server import BadRequest, get_config, route, set_config
+from .server import BadRequest, get_config, route, secret_equal, set_config
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +189,7 @@ def api_login(handler, query):
     body = handler.read_json_body()
     supplied = str(body.get("token", "")).strip()
     token = get_config().web.api_token
-    if not supplied or not hmac.compare_digest(supplied, token):
+    if not supplied or not secret_equal(supplied, token):
         time.sleep(0.5)  # slows guessing; the token is 128 bits anyway
         handler._send_json({"ok": False, "error": "That access token is not right"}, status=401)
         return
