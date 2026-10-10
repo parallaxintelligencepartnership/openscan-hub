@@ -189,6 +189,18 @@ the server itself needs the token (`docker logs openscan-hub` shows it at
 startup, or run `docker exec openscan-hub openscan --show-token`). Settings has **Regenerate token** if it
 ever leaks.
 
+**Behind a reverse proxy.** A browser on the computer running OpenScanHub is
+signed in automatically. A request that arrives through a reverse proxy
+(nginx, Caddy, cloudflared, Tailscale serve) is treated as coming from another
+device and needs the token, even when the proxy runs on the same computer:
+any request with an `X-Forwarded-For`, `X-Real-IP`, `Forwarded` or
+`X-Forwarded-Host` header counts as remote. Caddy, cloudflared and Tailscale
+serve add `X-Forwarded-For` by themselves. nginx does not: add
+`proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` to the
+`location` block. If you are not sure what your proxy sends, set
+`OPENSCAN_DISABLE_LOCAL_AUTOLOGIN=1`, which turns automatic sign-in off
+completely.
+
 ## Home Assistant (optional)
 
 Home Assistant is an optional add-on, not needed for anything above.

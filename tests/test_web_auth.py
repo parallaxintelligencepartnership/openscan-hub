@@ -162,3 +162,30 @@ class _OfflineImpl:
 
 def _offline_impl(protocol):
     return _OfflineImpl()
+
+
+def test_proxied_loopback_request_gets_no_automatic_cookie(live_server, monkeypatch):
+    # A reverse proxy on the same machine connects from 127.0.0.1; the proxy
+    # headers show the visitor is somewhere else, so no automatic sign-in.
+    monkeypatch.setenv("OPENSCAN_ALLOWED_HOSTS", "scans.example.com")
+    for name, value in (("X-Forwarded-For", "203.0.113.9"), ("X-Real-IP", "203.0.113.9"),
+                        ("Forwarded", "for=203.0.113.9"),
+                        ("X-Forwarded-Host", "scans.example.com")):
+        r = live_server.get("/dashboard", host="scans.example.com", headers={name: value})
+        assert r.status == 302, name
+        assert r.headers["Location"] == "login"
+        assert r.headers.get("Set-Cookie") is None
+        r = live_server.get("/login", headers={name: value})
+        assert r.status == 200, name
+        assert r.headers.get("Set-Cookie") is None
+    # The token still works through the proxy.
+    r = live_server.get("/api/config", token=TOKEN, headers={"X-Forwarded-For": "203.0.113.9"})
+    assert r.status == 200
+
+
+def test_local_autologin_can_be_disabled(live_server, monkeypatch):
+    monkeypatch.setenv("OPENSCAN_DISABLE_LOCAL_AUTOLOGIN", "1")
+    r = live_server.get("/dashboard")
+    assert r.status == 302
+    assert r.headers.get("Set-Cookie") is None
+    assert live_server.get("/login").status == 200

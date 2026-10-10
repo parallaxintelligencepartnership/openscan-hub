@@ -87,6 +87,11 @@ def session_value(token: str) -> str:
     return hmac.new(token.encode("utf-8"), b"openscan-session-v1", hashlib.sha256).hexdigest()
 
 
+# Headers a reverse proxy adds. A loopback peer sending any of them is a proxy
+# forwarding someone else's request.
+PROXY_HEADERS = ("X-Forwarded-For", "X-Real-IP", "Forwarded", "X-Forwarded-Host")
+
+
 def _is_loopback(ip: str) -> bool:
     try:
         addr = ipaddress.ip_address(ip.split("%", 1)[0])
@@ -180,7 +185,18 @@ class RequestHandler(BaseHTTPRequestHandler):
         return str(self.client_address[0])
 
     def is_loopback_peer(self) -> bool:
-        return _is_loopback(self.peer_ip())
+        """True for a browser on this computer that reached us directly.
+
+        A reverse proxy on the same machine also connects from loopback, so a
+        request carrying any proxy header counts as remote."""
+        if not _is_loopback(self.peer_ip()):
+            return False
+        return not any(self.headers.get(h) for h in PROXY_HEADERS)
+
+    def may_auto_sign_in(self) -> bool:
+        if os.environ.get("OPENSCAN_DISABLE_LOCAL_AUTOLOGIN", "").strip() not in ("", "0"):
+            return False
+        return self.is_loopback_peer()
 
     def is_trusted_proxy(self) -> bool:
         return self.peer_ip() in _trusted_proxies()
@@ -337,7 +353,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def _serve_page_or_static(self, path: str, query: dict):
         if path == "/login":
-            if self.is_loopback_peer() or self.is_trusted_proxy() or self._cookie_ok():
+            if self.may_auto_sign_in() or self.is_trusted_proxy() or self._cookie_ok():
                 self._issue_cookie_if_needed()
                 self._redirect("dashboard")
                 return
@@ -346,7 +362,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 
         if path == "/" or path in PAGES:
             if not (self.is_trusted_proxy() or self._cookie_ok() or self.token_ok()):
-                if self.is_loopback_peer():
+                if self.may_auto_sign_in():
                     self._extra_headers.append(("Set-Cookie", self.session_cookie_header()))
                 else:
                     self._redirect("login")
