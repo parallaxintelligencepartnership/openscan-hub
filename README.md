@@ -1,278 +1,295 @@
 <p align="center">
   <h1 align="center">OpenScanHub</h1>
   <p align="center">
-    <strong>Universal network scanner bridge</strong><br>
-    Scan from any network scanner to your computer, NAS, Paperless-NGX, or Home Assistant.
+    <strong>Put paper on the scanner. It lands in your folder.</strong>
   </p>
   <p align="center">
     <a href="https://github.com/parallaxintelligencepartnership/openscan-hub/releases"><img src="https://img.shields.io/github/v/release/parallaxintelligencepartnership/openscan-hub?style=flat-square" alt="Release"></a>
     <a href="https://github.com/parallaxintelligencepartnership/openscan-hub/blob/main/LICENSE"><img src="https://img.shields.io/github/license/parallaxintelligencepartnership/openscan-hub?style=flat-square" alt="License"></a>
-    <a href="https://github.com/parallaxintelligencepartnership/openscan-hub"><img src="https://img.shields.io/github/stars/parallaxintelligencepartnership/openscan-hub?style=flat-square" alt="Stars"></a>
     <img src="https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square" alt="Python 3.10+">
   </p>
 </p>
 
 ---
 
-OpenScanHub connects your network scanner to wherever you want your documents to go. It supports multiple scanner protocols, auto-discovery, automatic document feeder monitoring, and a simple web-based setup wizard that **anyone** can use - no technical skills required.
+OpenScanHub connects the network scanner you already own to a folder on your
+computer or NAS, with no drivers and no vendor apps. Paperless-NGX is an
+optional extra destination.
 
 Built by [Parallax Intelligence Partnership, LLC](https://parallaxintelligence.ai) and released as free, open-source software.
 
-[parallaxintelligence.ai](https://parallaxintelligence.ai) | [parallaxintelligence.online](https://parallaxintelligence.online) | [GitHub](https://github.com/parallaxintelligencepartnership)
+## Install
 
-## Why OpenScanHub?
+Pick one of three ways.
 
-Most network scanners can scan - but getting those scans **where you actually need them** is the hard part. OpenScanHub solves this:
+### 1. Windows app (easiest)
 
-- **Your scanner** talks eSCL, WSD, FTP, or saves to a folder
-- **OpenScanHub** catches the scan and routes it
-- **Your documents** land in your folder, NAS, Paperless-NGX, or trigger a Home Assistant automation
+1. Download **`OpenScanHub.exe`** and **`SHA256SUMS.txt`** from the
+   [latest release](https://github.com/parallaxintelligencepartnership/openscan-hub/releases/latest).
+2. Double-click `OpenScanHub.exe`. Your browser opens the setup page.
 
-No drivers to install. No vendor apps. One setup wizard and you're done.
+The app is not code-signed yet, so Windows SmartScreen may show
+**"Windows protected your PC"**. Click **More info**, then **Run anyway**.
+If you want to check the file first, open PowerShell in your Downloads
+folder and run:
 
-## Features
+```powershell
+Get-FileHash .\OpenScanHub.exe -Algorithm SHA256
+```
 
-- **Four scanner protocols** - eSCL (AirScan/AirPrint), WSD (Web Services for Devices), FTP receiver, and folder watching
-- **Scan-to-FTP replacement** - Built-in FTP server receives scans pushed from your scanner's control panel
-- **Auto-discovery** - Finds compatible scanners on your network automatically
-- **Paperless-NGX** - Direct API upload or consume folder drop
-- **Home Assistant** - REST commands for scan buttons on your HA dashboard
-- **ADF auto-scan** - Automatically scans when paper is placed in the document feeder
-- **Folder watcher** - Route files from any scanner that saves to a network share
-- **Web UI** - Setup wizard + scan dashboard, works on phone and desktop
-- **Three deployment options** - Windows EXE, Docker, or pip install
+The long number it prints must match the line for `OpenScanHub.exe` in
+`SHA256SUMS.txt`. If it does not, delete the file and download it again.
+(With the GitHub CLI you can also check how it was built:
+`gh attestation verify OpenScanHub.exe --repo parallaxintelligencepartnership/openscan-hub`.)
 
-## Quick Start
+OpenScanHub then runs in the system tray. Right-click the tray icon to scan,
+open the dashboard, or show your access token.
 
-### Option 1: Windows EXE (easiest)
+### 2. Docker (Linux, NAS, Raspberry Pi)
 
-1. Download **`OpenScanHub.exe`** from the [latest release](https://github.com/parallaxintelligencepartnership/openscan-hub/releases/latest)
-2. Double-click to run
-3. Your browser opens to the setup wizard
-4. Follow the 6 steps to configure your scanner
+Images are published for **linux/amd64** and **linux/arm64**:
 
-The app runs in your system tray. Right-click for quick scan options.
+| Tag | Meaning |
+|---|---|
+| `ghcr.io/parallaxintelligencepartnership/openscan-hub:latest` | Newest stable release |
+| `ghcr.io/parallaxintelligencepartnership/openscan-hub:0.3` | Newest 0.3.x release |
+| `ghcr.io/parallaxintelligencepartnership/openscan-hub:0.3.0` | Exactly this version |
 
-### Option 2: Docker (Linux, NAS, servers)
+```bash
+mkdir openscan-hub && cd openscan-hub
+curl -O https://raw.githubusercontent.com/parallaxintelligencepartnership/openscan-hub/main/docker-compose.yml
+mkdir -p scans
+docker compose up -d
+```
+
+Open `http://<your-server>:8020`. Scans are saved to the `scans` folder next
+to `docker-compose.yml` (inside the container it is `/scans`). Settings live
+in the `openscan-config` volume (`/config`). The container runs as user ID
+1000, so create the `scans` folder yourself before the first start, as shown.
+
+Set `TZ` in `docker-compose.yml` to your time zone so file names carry your
+local time. To find scanners automatically, switch to `network_mode: host`
+(see the comments in the file); otherwise enter the scanner's IP address.
+
+### 3. Python (any OS, for developers)
+
+OpenScanHub is not on PyPI. Install a release straight from GitHub
+(Python 3.10 or newer):
+
+```bash
+pip install "openscan-hub @ git+https://github.com/parallaxintelligencepartnership/openscan-hub@v0.3.0"
+openscan
+```
+
+For the exact dependency versions used by the release builds:
 
 ```bash
 git clone https://github.com/parallaxintelligencepartnership/openscan-hub.git
 cd openscan-hub
-docker compose up -d
-```
-
-Open `http://your-server:8020` in your browser to run the setup wizard.
-
-> **Note:** `network_mode: host` is required for mDNS scanner auto-discovery. If you configure your scanner IP manually, you can use standard port mapping instead.
-
-### Option 3: pip install (developers)
-
-```bash
-pip install openscan-hub
+pip install --require-hashes -r requirements.lock
+pip install --no-deps -e .
 openscan
 ```
 
-Open `http://localhost:8020` in your browser.
+Open `http://localhost:8020`.
 
-## Supported Scanners
+## First run: three steps
 
-| Protocol | Scanners | How It Works |
-|----------|----------|--------------|
-| **eSCL** (AirScan) | HP, Canon, Epson, Brother, and most printers made after ~2015 | OpenScanHub pulls scans via HTTP. Auto-discovered via mDNS. |
-| **WSD** | Xerox, Ricoh, and enterprise MFPs | OpenScanHub pulls scans via SOAP. Auto-discovered via WS-Discovery. |
-| **FTP Receiver** | Any scanner with "Scan to FTP" | Scanner pushes to OpenScanHub's built-in FTP server. Drop-in replacement for a standalone FTP server. |
-| **Folder Watch** | Any scanner that saves to a network share | OpenScanHub watches a folder and routes new files automatically. |
+1. **Find your scanner.** OpenScanHub looks for scanners on your network.
+   If yours does not show up, type its IP address. If your scanner sends files
+   by itself (Scan to FTP or Scan to folder), choose that option instead.
+2. **Where should scans go?** A folder is already filled in (Windows:
+   `Documents\Scans`, Mac and Linux: `~/Scans`, Docker: `/scans`). Change it
+   if you like, for example to a NAS share. Paperless-NGX is an optional
+   extra here.
+3. **All set.** Scan a test page and check that it arrived.
 
-Don't see your scanner? If it's on your network and less than 10 years old, it almost certainly supports eSCL or Scan-to-FTP. Try the auto-discovery first, or set up the FTP receiver.
+You can change everything later on the Settings page (gear icon on the
+dashboard).
 
-## Home Assistant Integration
+## Where scans go
 
-OpenScanHub exposes a simple REST API that makes it easy to add **Scan** buttons to your Home Assistant dashboard.
+**A folder (the default).** Any folder works, including a NAS share such as
+`\\nas\scans` on Windows or a mounted share like `/mnt/nas/scans` on Linux
+and `/Volumes/scans` on a Mac. On its own this is a complete setup.
 
-### Step 1: Add REST Commands
+Scans are never thrown away. If the folder cannot be reached (the NAS is
+asleep or offline), the dashboard says so, OpenScanHub keeps the scan, and it
+tries again after 1 minute, 5 minutes, 15 minutes, 1 hour, and then once a
+day. You can also press **Retry** on the dashboard. After 30 days it stops
+trying but still keeps the file.
 
-Add the following to your Home Assistant `configuration.yaml` (replace `OPENSCAN_IP` with the IP/hostname where OpenScanHub is running):
+**Paperless-NGX (optional).** Turn it on in Settings if you use
+[Paperless-NGX](https://docs.paperless-ngx.com/). Two ways to send:
 
-```yaml
-rest_command:
-  openscan_adf:
-    url: "http://OPENSCAN_IP:8020/api/scan/adf"
-    method: GET
-    timeout: 120
-  openscan_flatbed:
-    url: "http://OPENSCAN_IP:8020/api/scan/flatbed"
-    method: GET
-    timeout: 120
-  openscan_status:
-    url: "http://OPENSCAN_IP:8020/api/status"
-    method: GET
-```
+| Way | Use it when | You enter |
+|---|---|---|
+| Consume folder | Paperless runs on the same machine or NAS | The Paperless consume folder |
+| API upload | Paperless runs somewhere else | The Paperless address and an API token |
 
-### Step 2: Restart Home Assistant
+With API upload you can also set tags (created if missing), a correspondent
+and a document type (these must already exist in Paperless). OpenScanHub
+waits up to a minute for Paperless to confirm the document. "Keep a local
+copy" is on by default; if you turn it off, the copy in your scans folder is
+removed only after Paperless confirms it has the document.
 
-Go to **Developer Tools > YAML > Check Configuration**, then restart.
+## Other ways scans arrive
 
-### Step 3: Add Dashboard Buttons
+Most scanners are driven directly by OpenScanHub (eSCL/AirScan or WSD). Two
+other ways cover the rest.
 
-Add cards to your HA dashboard. Here's a simple example using the **Button** card:
-
-```yaml
-type: horizontal-stack
-cards:
-  - type: button
-    name: Scan (Feeder)
-    icon: mdi:file-document-arrow-right
-    tap_action:
-      action: perform-action
-      perform_action: rest_command.openscan_adf
-    hold_action:
-      action: url
-      url_path: http://OPENSCAN_IP:8020/dashboard
-  - type: button
-    name: Scan (Flatbed)
-    icon: mdi:scanner
-    tap_action:
-      action: perform-action
-      perform_action: rest_command.openscan_flatbed
-    hold_action:
-      action: url
-      url_path: http://OPENSCAN_IP:8020/dashboard
-```
-
-> **Tip:** Long-press either button to open the full OpenScanHub dashboard in your browser.
-
-### Step 4: Automations (Optional)
-
-You can also trigger scans from HA automations:
-
-```yaml
-automation:
-  - alias: "Morning Document Scan"
-    trigger:
-      - platform: time
-        at: "08:00:00"
-    action:
-      - action: rest_command.openscan_adf
-```
-
-## Scan-to-FTP Replacement
-
-If your scanner supports "Scan to FTP" (most enterprise MFPs do), OpenScanHub can completely replace your FTP server. Instead of setting up vsftpd or FileZilla Server, just point your scanner at OpenScanHub.
-
-### Scanner-Side Setup
-
-On your scanner's control panel or web admin, configure the FTP scan destination:
+**FTP receiver** for scanners with "Scan to FTP". Turn it on in Settings,
+then enter these on the scanner:
 
 | Setting | Value |
-|---------|-------|
-| **Server/Host** | IP address of the machine running OpenScanHub |
-| **Port** | `2121` (default, configurable) |
-| **Username** | `scan` (default, configurable) |
-| **Password** | `scan` (default, configurable) |
-| **Path/Directory** | `/` |
-| **File Format** | PDF (recommended) or JPEG/TIFF |
+|---|---|
+| Server | The IP address of the computer running OpenScanHub |
+| Port | `2121` |
+| User name | `scan` |
+| Password | Shown in Settings (a random password is created for you) |
+| Folder | `/` |
+| Format | PDF |
 
-That's it. When someone presses "Scan" on the physical scanner and selects the FTP destination, the file lands in OpenScanHub and gets routed to your output folder, Paperless-NGX, or wherever you've configured.
+The FTP receiver only accepts uploads: nobody can download or delete files
+through it, and anonymous login is off. Because the scanner has to reach it,
+it listens on your whole network while it is turned on, and FTP itself is not
+encrypted. Leave it off if you do not need it. With Docker, uncomment the FTP
+ports in `docker-compose.yml`, or better, use `network_mode: host` so the
+scanner can open the passive data ports (60000 to 60010).
 
-### Docker Note
+**Folder watch** for scanners that save to a network folder by themselves.
+OpenScanHub picks up new files from that folder and sends them to your scans
+folder (and Paperless, if on). The watched folder must be a different folder:
+it cannot be your scans folder, sit inside it, or contain it. Files already
+in the watched folder when watching starts are left alone.
 
-If running in Docker, expose the FTP ports:
+## Supported scanners
 
-```yaml
-ports:
-  - "8020:8020"    # Web UI
-  - "2121:2121"    # FTP control
-  - "60000-60100:60000-60100"  # FTP passive data
-```
+| Protocol | Scanners | How it works |
+|---|---|---|
+| **eSCL** (AirScan) | HP, Canon, Epson, Brother, and most printers made after about 2015 | OpenScanHub asks the scanner for pages. Found automatically. |
+| **WSD** | Xerox, Ricoh, Canon and many office multifunction printers | OpenScanHub asks the scanner for pages. Found automatically. |
+| **FTP receiver** | Any scanner with "Scan to FTP" | The scanner sends files to OpenScanHub. |
+| **Folder watch** | Any scanner that saves to a network share | OpenScanHub picks up new files. |
 
-## Paperless-NGX Integration
+## Access token and using it from other devices
 
-OpenScanHub supports two methods of sending scans to Paperless-NGX:
+Out of the box, OpenScanHub only answers on the computer it runs on. To use it
+from a phone or another computer, turn on **Allow other devices on my network
+to use OpenScanHub** in Settings and restart OpenScanHub. Other devices then
+sign in once with the **access token**. You can see the token:
 
-| Method | Best For | Setup |
-|--------|----------|-------|
-| **Consume Folder** | Paperless on the same machine or NAS | Point to your Paperless consume directory |
-| **REST API** | Remote Paperless instances | Enter URL + API token in the wizard |
+- in the tray menu: **Show access token** (Windows app),
+- on the Settings page,
+- by running `openscan --show-token`,
+- in the log when OpenScanHub starts.
 
-Both methods are configured during the setup wizard. You can also enable both for redundancy.
+The Docker image listens on the network by default, so any device other than
+the server itself needs the token. Settings has **Regenerate token** if it
+ever leaks.
 
-## Configuration
+## Home Assistant (optional)
 
-Config is stored at:
+Home Assistant is an optional add-on, not needed for anything above.
 
-| Platform | Path |
-|----------|------|
-| Windows | `%APPDATA%\OpenScanHub\config.json` |
-| Docker | `/config/openscan.json` |
-| Linux/Mac | `~/.config/openscan/config.json` |
+- Scan buttons and a health sensor for an existing install:
+  [docs/home-assistant.md](docs/home-assistant.md).
+- Run OpenScanHub as a Home Assistant add-on (amd64 and aarch64):
+  [homeassistant-addon/](homeassistant-addon/) and its
+  [DOCS.md](homeassistant-addon/openscanhub/DOCS.md).
 
-Override with the `OPENSCAN_CONFIG_DIR` environment variable.
+## Settings file
 
-## Command Line Options
+Settings are stored in `openscan.json`:
+
+| System | Folder |
+|---|---|
+| Windows | `%APPDATA%\OpenScanHub` |
+| Mac | `~/Library/Application Support/OpenScanHub` |
+| Linux | `~/.config/openscan` (or `$XDG_CONFIG_HOME/openscan`) |
+| Docker | `/config` |
+
+Set `OPENSCAN_CONFIG_DIR` to use a different folder. `OPENSCAN_BIND`,
+`OPENSCAN_PORT` and `OPENSCAN_TOKEN` override the listen address, port and
+access token without changing the file.
+
+## Troubleshooting
+
+**Logs.** OpenScanHub writes `openscan.log` in a `logs` folder inside the
+settings folder above, for example `%APPDATA%\OpenScanHub\logs\openscan.log`
+on Windows, `~/Library/Application Support/OpenScanHub/logs/openscan.log` on
+a Mac, `~/.config/openscan/logs/openscan.log` on Linux, and
+`/config/logs/openscan.log` in Docker (also `docker logs openscan-hub`). The
+tray menu has **Open log folder**, and the Settings page shows recent
+problems.
+
+**Is it running?** Open `http://localhost:8020/api/health`. It answers
+without a token and shows the version, whether the scanner is online and how
+many scans are waiting to be retried.
+
+**Common problems**
+
+- *Scanner not found:* type its IP address (printed on the scanner's network
+  settings page). In Docker, automatic discovery needs `network_mode: host`.
+- *"Could not reach \\\\nas\\scans":* the NAS is off or the path is wrong.
+  The scan is kept and retried; check the share from File Explorer or Finder.
+- *Port 8020 already in use:* start with `openscan --port 8030`, or change
+  the port in Settings.
+- *Windows says "Windows protected your PC":* see the Windows install
+  section above.
+
+## Command line options
 
 ```
 openscan [options]
 
-  --port PORT        Web UI port (default: 8020)
-  --no-browser       Don't auto-open browser on startup
+  --port PORT        Web page port (default: 8020)
+  --no-browser       Don't open the browser on startup
   --log-level LEVEL  DEBUG, INFO, WARNING, or ERROR
+  --show-token       Print the access token and exit
   --version          Show version and exit
 ```
 
-## Building from Source
+## Building from source
 
-### Windows EXE
+Windows EXE (on Windows):
 
 ```bash
-pip install -e ".[tray,dev]"
+pip install --require-hashes -r requirements.lock
+pip install --no-deps -e .
 python build_exe.py
 # Output: dist/OpenScanHub.exe
 ```
 
-### Docker Image
+Docker image:
 
 ```bash
 docker build -t openscan-hub .
 ```
 
-## Architecture
+Tests: `python -m pytest tests/ -q`.
 
-```
-openscan/
-  scanner/
-    base.py          # Abstract scanner protocol interface
-    escl.py          # eSCL (AirScan) implementation
-    wsd.py           # WSD implementation
-    ftp_receive.py   # FTP receiver (Scan-to-FTP replacement)
-    folder_watch.py  # Folder watcher implementation
-  web/
-    server.py        # HTTP server + routing
-    wizard_api.py    # Setup wizard API endpoints
-    dashboard_api.py # Dashboard API endpoints
-    static/          # HTML, CSS, JS (vanilla, no frameworks)
-  config.py          # JSON config management
-  discovery.py       # Unified scanner discovery
-  output.py          # Output handlers (file save, Paperless)
-  monitor.py         # ADF state monitor (auto-scan)
-  main.py            # CLI entry point
-  tray.py            # Windows system tray (pystray)
+To update the pinned dependencies after changing `pyproject.toml`:
+
+```bash
+uv pip compile pyproject.toml --all-extras --generate-hashes --universal --python-version 3.10 -o requirements.lock
 ```
 
-## Dependencies
+## Third-party software
 
-| Package | License | Purpose | Required |
-|---------|---------|---------|----------|
-| [zeroconf](https://pypi.org/project/zeroconf/) | Apache 2.0 | mDNS scanner discovery | Yes |
-| [pyftpdlib](https://pypi.org/project/pyftpdlib/) | MIT | Built-in FTP server for Scan-to-FTP | Yes |
-| [pystray](https://pypi.org/project/pystray/) | LGPL v3 | Windows system tray icon | Windows EXE only |
-| [Pillow](https://pypi.org/project/Pillow/) | HPND | Tray icon rendering | Windows EXE only |
-
-Everything else is Python standard library. No JavaScript frameworks. No build tools. Just Python.
+OpenScanHub uses zeroconf, pyftpdlib, pypdf, pypdfium2 (PDFium), Pillow and,
+in the Windows app, pystray. Their licenses (MIT, BSD, Apache-2.0, MIT-CMU,
+and LGPL for zeroconf and pystray) and links to their source are listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Contributing
 
-Contributions are welcome! Please open an issue first to discuss what you'd like to change.
+Contributions are welcome. Please open an issue first to discuss what you'd
+like to change.
 
 ## License
 
-[MIT](LICENSE) - Copyright (c) 2025 [Parallax Intelligence Partnership, LLC](https://parallaxintelligence.ai)
+OpenScanHub's own code is released under the [MIT License](LICENSE),
+Copyright (c) 2025 [Parallax Intelligence Partnership, LLC](https://parallaxintelligence.ai).
+The third-party packages it includes keep their own licenses; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
