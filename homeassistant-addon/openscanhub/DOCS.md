@@ -46,6 +46,13 @@ you do not need to open port 8020. Because of the host network, port 8020 on
 your Home Assistant machine also answers other devices on your network, but
 only after they sign in with the access token.
 
+## Access token
+
+Open the add-on's web page, click the gear and go to **Access**, then click
+**Show** next to the access token. (The command
+`docker exec openscan-hub openscan --show-token` from the main README is for
+the standalone Docker image; the add-on's container has a different name.)
+
 ## Where things are stored
 
 - Settings, the access token and the retry queue: the add-on's private

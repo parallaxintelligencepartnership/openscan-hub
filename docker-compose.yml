@@ -1,6 +1,7 @@
 # OpenScanHub with Docker Compose.
 # First run:  mkdir -p scans && docker compose up -d
 # Then open http://<this-machine>:8020 and follow the setup steps.
+# Access token for other devices: docker exec openscan-hub openscan --show-token
 services:
   openscan:
     image: ghcr.io/parallaxintelligencepartnership/openscan-hub:latest
@@ -18,6 +19,11 @@ services:
       # - "2121:2121"
       # - "60000-60010:60000-60010"
     volumes:
+      # Settings and the access token. The named volume is the default because
+      # Docker creates it owned by the container user (uid 1000), so it is
+      # always writable. If you bind-mount a host folder instead, for example
+      # ./config:/config, first run: sudo chown -R 1000:1000 ./config
+      # Otherwise nothing can be saved and the web page shows a red warning.
       - openscan-config:/config
       - ./scans:/scans
     environment:

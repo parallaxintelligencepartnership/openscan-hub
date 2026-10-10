@@ -66,6 +66,9 @@ Open `http://<your-server>:8020`. Scans are saved to the `scans` folder next
 to `docker-compose.yml` (inside the container it is `/scans`). Settings live
 in the `openscan-config` volume (`/config`). The container runs as user ID
 1000, so create the `scans` folder yourself before the first start, as shown.
+If you bind-mount a host folder for `/config` instead of the volume, run
+`sudo chown -R 1000:1000 <that folder>` first; otherwise nothing can be saved,
+the log shows an error and the web page shows a red warning.
 
 Set `TZ` in `docker-compose.yml` to your time zone so file names carry your
 local time. To find scanners automatically, switch to `network_mode: host`
@@ -194,7 +197,7 @@ report.
 
 The Docker image listens on the network by default, so any device other than
 the server itself needs the token (run
-`docker exec openscan-hub python -m openscan --show-token`). In the default
+`docker exec openscan-hub openscan --show-token`). In the default
 bridge mode this includes a browser on the Docker host itself, because Docker
 forwards its requests from the bridge address. Settings has **Regenerate
 token** if it ever leaks.

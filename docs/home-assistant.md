@@ -10,7 +10,8 @@ optional module adds scan buttons and a "scanner online" sensor to your dashboar
 3. If Home Assistant runs on another machine, go to **Access** and turn on
    **Allow other devices on my network to use OpenScanHub**, then restart OpenScanHub.
 4. In **Access**, click **Show** next to the access token and copy it. Home Assistant
-   sends it with every request.
+   sends it with every request. With the Docker image you can also run
+   `docker exec openscan-hub openscan --show-token`.
 
 While the module is off, the routes below return 404.
 

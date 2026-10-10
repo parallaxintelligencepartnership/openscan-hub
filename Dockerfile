@@ -30,8 +30,16 @@ RUN pip install --require-hashes -r requirements.lock
 COPY LICENSE THIRD_PARTY_NOTICES.md ./
 COPY openscan/ openscan/
 
+# The `openscan` command (for example `docker exec openscan-hub openscan
+# --show-token`). A wrapper rather than `pip install .`, which would fetch an
+# unpinned setuptools at build time. `python -m openscan` keeps working too.
+RUN printf '#!/bin/sh\nPYTHONPATH="/app${PYTHONPATH:+:$PYTHONPATH}" exec python -m openscan "$@"\n' \
+        > /usr/local/bin/openscan \
+    && chmod 755 /usr/local/bin/openscan
+
 # Run as an ordinary user. UID 1000 matches the first user on most Linux
-# hosts and NAS boxes, so files in ./scans belong to you, not root.
+# hosts and NAS boxes, so files in ./scans belong to you, not root. A
+# bind-mounted /config must be writable by 1000:1000 (chown -R 1000:1000 it).
 RUN useradd --system --uid 1000 --user-group --home-dir /app --shell /usr/sbin/nologin openscan \
     && mkdir -p /config /scans \
     && chown openscan:openscan /config /scans
