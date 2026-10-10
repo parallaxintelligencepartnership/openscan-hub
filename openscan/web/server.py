@@ -273,7 +273,9 @@ class RequestHandler(BaseHTTPRequestHandler):
         return None, None
 
     def _path_exists_other_method(self, method: str, path: str) -> bool:
-        for (m, p) in _routes:
+        for (m, p), rt in _routes.items():
+            if rt.guard is not None and not rt.guard(get_config()):
+                continue
             if m != method and (p == path or (p.endswith("/") and path.startswith(p))):
                 return True
         return False

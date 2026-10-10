@@ -151,8 +151,51 @@ class LiveServer:
         return self.request("POST", path, json_body={} if json_body is None and "body" not in kw else json_body, **kw)
 
 
+class FakeScanner:
+    """Stands in for EsclScanner/WsdScanner. Offline unless told otherwise."""
+
+    def __init__(self):
+        from openscan.scanner.base import ScanSource
+        self.online = False
+        self.sources = [ScanSource.FLATBED]
+        self.data = b"%PDF-1.4 fake"
+        self.gate: Optional[threading.Event] = None  # scan() waits on this if set
+        self.scans = []
+
+    def get_status(self, info):
+        from openscan.scanner.base import ScannerState, ScannerStatus
+        if not self.online:
+            raise OSError("offline")
+        return ScannerStatus(state=ScannerState.IDLE)
+
+    def get_capabilities(self, info):
+        from openscan.scanner.base import ScannerCapabilities
+        if not self.online:
+            raise OSError("offline")
+        return ScannerCapabilities(sources=list(self.sources))
+
+    def scan(self, info, settings):
+        self.scans.append(settings)
+        if self.gate is not None:
+            self.gate.wait(5)
+        return self.data
+
+
 @pytest.fixture
-def live_server(app_config, fake_services):
+def fake_scanner(monkeypatch):
+    from openscan.web import dashboard_api
+
+    scanner = FakeScanner()
+    monkeypatch.setattr(dashboard_api, "_impl", lambda protocol: scanner)
+    monkeypatch.setattr(dashboard_api.multipage, "ensure_pdf", lambda data, resolution=300: data)
+    dashboard_api.clear_caps_cache()
+    dashboard_api._online_cache.update(time=0.0, value=None, key=None)
+    yield scanner
+    dashboard_api.clear_caps_cache()
+
+
+@pytest.fixture
+def live_server(app_config, fake_services, fake_scanner):
     from openscan.web import server as srv
 
     server = srv.create_server(app_config)
