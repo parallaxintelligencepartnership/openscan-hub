@@ -81,9 +81,11 @@ basics plus `uptime_seconds`, if you only want to know that OpenScanHub is up.
 ## 5. Home Assistant add-on
 
 If you run Home Assistant OS, you can install OpenScanHub as an add-on instead of
-running it on another computer. The add-on files are in
-[`homeassistant-addon/`](../homeassistant-addon/) in this repository; see the README
-there for the steps. The add-on opens the OpenScanHub page inside Home Assistant
+running it on another computer. Add this repository's URL as an add-on repository
+(the [`repository.yaml`](../repository.yaml) at the top of the repository is what
+Home Assistant looks for). The add-on files are in
+[`homeassistant-addon/openscanhub/`](../homeassistant-addon/openscanhub/), and its
+[DOCS.md](../homeassistant-addon/openscanhub/DOCS.md) has the steps. The add-on opens the OpenScanHub page inside Home Assistant
 (ingress), where Home Assistant handles sign-in, so you don't need the token for the
 page itself. The `rest_command` examples above still need the token.
 

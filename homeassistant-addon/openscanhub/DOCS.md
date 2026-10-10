@@ -10,7 +10,9 @@ Assistant to use it; see the main README for Windows and Docker installs.
 
 1. In Home Assistant, open **Settings > Add-ons > Add-on Store**.
 2. Open the menu (three dots, top right), choose **Repositories**, and add
-   `https://github.com/parallaxintelligencepartnership/openscan-hub`.
+   `https://github.com/parallaxintelligencepartnership/openscan-hub`
+   (the whole repository URL, not the `homeassistant-addon` folder; the
+   repository's `repository.yaml` is at its top level).
 3. Find **OpenScanHub** in the store, click **Install**, then **Start**.
 4. Turn on **Show in sidebar** and open **Scanner** from the sidebar.
 5. Follow the three setup steps: pick your scanner, check the scans folder,

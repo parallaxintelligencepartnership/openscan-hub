@@ -207,9 +207,12 @@ Home Assistant is an optional add-on, not needed for anything above.
 
 - Scan buttons and a health sensor for an existing install:
   [docs/home-assistant.md](docs/home-assistant.md).
-- Run OpenScanHub as a Home Assistant add-on (amd64 and aarch64):
-  [homeassistant-addon/](homeassistant-addon/) and its
-  [DOCS.md](homeassistant-addon/openscanhub/DOCS.md).
+- Run OpenScanHub as a Home Assistant add-on (amd64 and aarch64): add this
+  repository's URL under **Settings > Add-ons > Add-on Store > Repositories**
+  (the [repository.yaml](repository.yaml) at the top of this repository makes
+  that work). The add-on itself is in
+  [homeassistant-addon/openscanhub/](homeassistant-addon/openscanhub/); the
+  steps are in its [DOCS.md](homeassistant-addon/openscanhub/DOCS.md).
 
 ## Settings file
 
