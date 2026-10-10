@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openscan-hub"
-version = "0.3.0"
+version = "0.3.1"
 description = "Network scanner bridge: put paper on the scanner and it lands in a folder, a NAS share or Paperless-NGX"
 readme = "README.md"
 license = "MIT"

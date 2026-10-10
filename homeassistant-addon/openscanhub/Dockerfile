@@ -1,6 +1,6 @@
 # Built from the same image as the standalone Docker install, so the add-on
 # runs exactly the released code. The tag matches "version" in config.yaml.
-ARG OPENSCAN_VERSION=0.3.0
+ARG OPENSCAN_VERSION=0.3.1
 FROM ghcr.io/parallaxintelligencepartnership/openscan-hub:${OPENSCAN_VERSION}
 
 # Home Assistant mounts /data, /share and /media owned by root.

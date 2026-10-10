@@ -53,7 +53,7 @@ Images are published for **linux/amd64** and **linux/arm64**:
 |---|---|
 | `ghcr.io/parallaxintelligencepartnership/openscan-hub:latest` | Newest stable release |
 | `ghcr.io/parallaxintelligencepartnership/openscan-hub:0.3` | Newest 0.3.x release |
-| `ghcr.io/parallaxintelligencepartnership/openscan-hub:0.3.0` | Exactly this version |
+| `ghcr.io/parallaxintelligencepartnership/openscan-hub:0.3.1` | Exactly this version |
 
 ```bash
 mkdir openscan-hub && cd openscan-hub
@@ -80,7 +80,7 @@ OpenScanHub is not on PyPI. Install a release straight from GitHub
 (Python 3.10 or newer):
 
 ```bash
-pip install "openscan-hub @ git+https://github.com/parallaxintelligencepartnership/openscan-hub@v0.3.0"
+pip install "openscan-hub @ git+https://github.com/parallaxintelligencepartnership/openscan-hub@v0.3.1"
 openscan
 ```
 

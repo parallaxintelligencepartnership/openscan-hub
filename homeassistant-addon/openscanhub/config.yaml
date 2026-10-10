@@ -1,5 +1,5 @@
 name: OpenScanHub
-version: "0.3.0"
+version: "0.3.1"
 slug: openscanhub
 description: Put paper on your network scanner and it lands in a folder or in Paperless-NGX.
 url: https://github.com/parallaxintelligencepartnership/openscan-hub/tree/main/homeassistant-addon

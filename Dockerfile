@@ -2,7 +2,7 @@
 # Build: docker build -t openscan-hub .
 FROM python:3.13-slim
 
-ARG VERSION=0.3.0
+ARG VERSION=0.3.1
 
 LABEL org.opencontainers.image.title="OpenScanHub" \
       org.opencontainers.image.description="Network scanner bridge: scans land in a folder, a NAS share or Paperless-NGX" \
