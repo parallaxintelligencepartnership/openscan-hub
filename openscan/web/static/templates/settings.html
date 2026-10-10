@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenScanHub - Settings</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="top-links"><a href="dashboard">&larr; Dashboard</a></div>
+    <div class="container">
+        <div class="header">
+            <h1>Settings</h1>
+        </div>
+
+        <div id="restart-alert" class="alert alert-warning hidden">
+            Restart OpenScanHub to apply the network access changes.
+        </div>
+
+        <!-- Scanner -->
+        <div class="card" id="scanner">
+            <h2>Scanner</h2>
+            <p id="scanner-current"></p>
+            <button class="btn btn-secondary btn-small" onclick="settings.discover()">Find scanners again</button>
+            <div id="discover-loading" class="loading hidden"><div class="spinner"></div><span>Looking...</span></div>
+            <ul class="scanner-list mt-8" id="scanner-list"></ul>
+            <details class="mt-8">
+                <summary>Enter the scanner's IP address</summary>
+                <div class="row mt-8">
+                    <input type="text" id="manual-ip" placeholder="192.168.1.100">
+                    <button class="btn btn-secondary btn-small" onclick="settings.probeManual()">Check</button>
+                </div>
+                <div id="probe-result" class="mt-8"></div>
+            </details>
+            <label class="toggle mt-8">
+                <input type="checkbox" id="monitor-enabled">
+                <span class="slider"></span>
+                <span class="label">Scan automatically when I put paper in the feeder</span>
+            </label>
+        </div>
+
+        <!-- Where scans go -->
+        <div class="card" id="output">
+            <h2>Where scans go</h2>
+            <div class="form-group">
+                <label for="output-folder">Folder</label>
+                <input type="text" id="output-folder">
+                <small class="hint" id="folder-hint"></small>
+            </div>
+            <div class="form-group">
+                <label for="filename-pattern">File name</label>
+                <input type="text" id="filename-pattern">
+                <small class="hint">{date} becomes 2026-10-10, {time} becomes 143022, {n} becomes a number.</small>
+            </div>
+            <div class="form-group">
+                <label for="scan-resolution">Quality</label>
+                <select id="scan-resolution">
+                    <option value="150">150 dpi (small files)</option>
+                    <option value="200">200 dpi</option>
+                    <option value="300">300 dpi (recommended)</option>
+                    <option value="600">600 dpi (large files)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="scan-color">Color</label>
+                <select id="scan-color">
+                    <option value="color">Color</option>
+                    <option value="gray">Grayscale</option>
+                    <option value="bw">Black and white</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="scan-page-size">Page size</label>
+                <select id="scan-page-size">
+                    <option value="auto">Automatic</option>
+                    <option value="letter">Letter</option>
+                    <option value="a4">A4</option>
+                    <option value="legal">Legal</option>
+                </select>
+            </div>
+            <label class="toggle">
+                <input type="checkbox" id="scan-duplex">
+                <span class="slider"></span>
+                <span class="label">Scan both sides (feeder only)</span>
+            </label>
+            <label class="toggle">
+                <input type="checkbox" id="scan-remove-blank">
+                <span class="slider"></span>
+                <span class="label">Remove blank pages</span>
+            </label>
+        </div>
+
+        <!-- Paperless-NGX -->
+        <details class="card section" id="paperless">
+            <summary><h2>Paperless-NGX (optional)</h2></summary>
+            <div class="mt-16">
+                <label class="toggle">
+                    <input type="checkbox" id="paperless-enabled">
+                    <span class="slider"></span>
+                    <span class="label">Send scans to Paperless-NGX</span>
+                </label>
+                <div class="form-group mt-8">
+                    <label for="paperless-mode">How to send</label>
+                    <select id="paperless-mode" onchange="settings.togglePaperlessMode()">
+                        <option value="api">Upload to the Paperless-NGX web address</option>
+                        <option value="consume">Drop files in its consume folder</option>
+                    </select>
+                </div>
+                <div id="paperless-consume-fields" class="form-group">
+                    <label for="paperless-consume-folder">Consume folder</label>
+                    <input type="text" id="paperless-consume-folder">
+                </div>
+                <div id="paperless-api-fields">
+                    <div class="form-group">
+                        <label for="paperless-url">Paperless-NGX address</label>
+                        <input type="url" id="paperless-url" placeholder="http://paperless.local:8000">
+                    </div>
+                    <div class="form-group">
+                        <label for="paperless-token">API token</label>
+                        <input type="password" id="paperless-token" autocomplete="off">
+                        <small class="hint" id="paperless-token-hint"></small>
+                    </div>
+                    <div class="form-group">
+                        <label for="paperless-tags">Tags</label>
+                        <input type="text" id="paperless-tags" placeholder="scanned, inbox">
+                        <small class="hint">Separate tags with commas.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="paperless-correspondent">Correspondent</label>
+                        <input type="text" id="paperless-correspondent">
+                    </div>
+                    <div class="form-group">
+                        <label for="paperless-document-type">Document type</label>
+                        <input type="text" id="paperless-document-type">
+                    </div>
+                    <button class="btn btn-secondary btn-small" onclick="settings.testPaperless()">Test connection</button>
+                    <div id="paperless-test-result" class="mt-8"></div>
+                </div>
+                <label class="toggle mt-8">
+                    <input type="checkbox" id="paperless-keep-local">
+                    <span class="slider"></span>
+                    <span class="label">Also keep a copy in my scans folder</span>
+                </label>
+            </div>
+        </details>
+
+        <!-- Other ways scans arrive -->
+        <div class="card" id="receivers">
+            <h2>Other ways scans arrive</h2>
+            <label class="toggle">
+                <input type="checkbox" id="ftp-enabled">
+                <span class="slider"></span>
+                <span class="label">Receive scans by FTP (Scan to FTP on the scanner)</span>
+            </label>
+            <div id="ftp-fields" class="mt-8">
+                <ul class="summary-list">
+                    <li><span class="label">Server</span><span class="value mono" id="ftp-server"></span></li>
+                </ul>
+                <div class="form-group mt-8">
+                    <label for="ftp-port">Port</label>
+                    <input type="number" id="ftp-port" min="1" max="65535">
+                </div>
+                <div class="form-group">
+                    <label for="ftp-username">User name</label>
+                    <input type="text" id="ftp-username">
+                </div>
+                <div class="form-group">
+                    <label for="ftp-password">Password</label>
+                    <input type="text" id="ftp-password" autocomplete="off" class="mono">
+                    <small class="hint">Enter this on the scanner. Change it here if you like; leave it as is to keep it.</small>
+                </div>
+            </div>
+            <label class="toggle mt-8">
+                <input type="checkbox" id="folder-enabled">
+                <span class="slider"></span>
+                <span class="label">Watch a folder the scanner saves into</span>
+            </label>
+            <div class="form-group mt-8">
+                <label for="watch-folder">Folder to watch</label>
+                <input type="text" id="watch-folder">
+                <small class="hint">Must be different from the folder where scans go.</small>
+            </div>
+        </div>
+
+        <!-- Integrations -->
+        <div class="card" id="integrations">
+            <h2>Integrations</h2>
+            <label class="toggle">
+                <input type="checkbox" id="ha-enabled">
+                <span class="slider"></span>
+                <span class="label">Home Assistant</span>
+            </label>
+            <small class="hint">Lets Home Assistant start scans and check the scanner.
+                <a href="https://github.com/parallaxintelligencepartnership/openscan-hub/blob/main/docs/home-assistant.md"
+                   target="_blank" rel="noopener noreferrer">How to set it up</a></small>
+        </div>
+
+        <!-- Access -->
+        <div class="card" id="access">
+            <h2>Access</h2>
+            <label class="toggle">
+                <input type="checkbox" id="allow-lan">
+                <span class="slider"></span>
+                <span class="label">Allow other devices on my network to use OpenScanHub</span>
+            </label>
+            <small class="hint">Takes effect after OpenScanHub restarts. Other devices sign in once with the access token.</small>
+            <label class="toggle mt-8">
+                <input type="checkbox" id="mdns-enabled">
+                <span class="slider"></span>
+                <span class="label">Let other devices find it as openscanhub.local</span>
+            </label>
+            <div class="form-group mt-8">
+                <label for="web-port">Web page port</label>
+                <input type="number" id="web-port" min="1" max="65535">
+                <small class="hint">Takes effect after OpenScanHub restarts.</small>
+            </div>
+            <div class="form-group">
+                <label>Access token</label>
+                <div class="row">
+                    <span class="mono" id="token-value">&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</span>
+                    <button class="btn btn-secondary btn-small" id="btn-reveal" onclick="settings.revealToken()">Show</button>
+                    <button class="btn btn-secondary btn-small" onclick="settings.copyToken()">Copy</button>
+                    <button class="btn btn-danger btn-small" onclick="settings.regenerateToken()">Regenerate</button>
+                </div>
+                <small class="hint">Regenerating signs out every other device and Home Assistant until you give them the new token.</small>
+            </div>
+        </div>
+
+        <!-- Troubleshooting -->
+        <div class="card" id="troubleshooting">
+            <h2>Troubleshooting</h2>
+            <p>Log folder: <span class="mono" id="log-folder"></span></p>
+            <button class="btn btn-secondary btn-small hidden" id="btn-open-logs" onclick="settings.openLogs()">Open log folder</button>
+            <h3 class="mt-16">Recent problems</h3>
+            <ul class="problem-list" id="errors-list"></ul>
+            <h3 class="mt-16">Scans waiting to retry</h3>
+            <ul class="problem-list" id="queue-list"></ul>
+            <button class="btn btn-secondary btn-small mt-8 hidden" id="btn-retry-all" onclick="settings.retry()">Retry all now</button>
+        </div>
+
+        <div class="save-bar">
+            <a class="btn btn-secondary" href="dashboard">Cancel</a>
+            <button class="btn btn-primary" id="btn-save" onclick="settings.save()">Save</button>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toast-container"></div>
+    <script src="js/common.js"></script>
+    <script src="js/settings.js"></script>
+</body>
+</html>
