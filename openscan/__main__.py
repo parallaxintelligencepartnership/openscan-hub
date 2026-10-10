@@ -1,7 +1,7 @@
-"""Allow running as `python -m openscan` or as PyInstaller entry point."""
-try:
+"""Allow running as `python -m openscan` or as the PyInstaller entry point."""
+if __package__:
     from .main import main
-except ImportError:
+else:  # PyInstaller runs this file as a script
     from openscan.main import main
 
 main()

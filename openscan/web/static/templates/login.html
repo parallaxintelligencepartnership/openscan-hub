@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenScanHub - Sign in</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>OpenScanHub</h1>
+            <p class="subtitle">Sign in from this device</p>
+        </div>
+        <div class="card">
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="token">Access token</label>
+                    <input type="password" id="token" autocomplete="current-password" autofocus>
+                    <small class="hint">Enter the access token shown in the OpenScanHub tray menu (Show access token),
+                        in the console window, or in the Docker log. You only need to do this once on each device.</small>
+                </div>
+                <div id="login-error" class="alert alert-error hidden"></div>
+                <button type="submit" class="btn btn-primary btn-large">Sign in</button>
+            </form>
+        </div>
+    </div>
+    <script src="js/common.js"></script>
+    <script>
+        document.getElementById('login-form').addEventListener('submit', async (ev) => {
+            ev.preventDefault();
+            const err = document.getElementById('login-error');
+            err.classList.add('hidden');
+            const token = document.getElementById('token').value.trim();
+            try {
+                const data = await api.post('api/login', { token });
+                if (data.ok) {
+                    window.location.href = 'dashboard';
+                } else {
+                    err.textContent = data.error || 'That access token is not right';
+                    err.classList.remove('hidden');
+                }
+            } catch (e) {
+                err.textContent = 'Could not reach OpenScanHub: ' + e.message;
+                err.classList.remove('hidden');
+            }
+        });
+    </script>
+</body>
+</html>

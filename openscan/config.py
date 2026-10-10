@@ -159,8 +159,10 @@ def load_config(path: Optional[Path] = None) -> AppConfig:
         try:
             data = json.loads(config_path.read_text(encoding="utf-8"))
             config = _dict_to_config(data)
-        except (json.JSONDecodeError, KeyError, TypeError, ValueError, AttributeError) as e:
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError,
+                ValueError, AttributeError) as e:
             logger.warning("Failed to load config from %s: %s", config_path, e)
+            _keep_broken_copy(config_path)
     if config is None:
         config = AppConfig()
 
@@ -188,6 +190,16 @@ def load_config(path: Optional[Path] = None) -> AppConfig:
     if os.environ.get("OPENSCAN_TOKEN"):
         config.web.api_token = os.environ["OPENSCAN_TOKEN"]
     return config
+
+
+def _keep_broken_copy(config_path: Path) -> None:
+    """Move an unreadable config aside so the defaults written next do not destroy it."""
+    backup = config_path.with_name(config_path.name + ".broken")
+    try:
+        os.replace(config_path, backup)
+        logger.warning("Kept the unreadable config as %s; starting with default settings", backup)
+    except OSError as e:
+        logger.warning("Could not move the unreadable config aside: %s", e)
 
 
 def save_config(config: AppConfig, path: Optional[Path] = None) -> None:

@@ -1,114 +1,149 @@
 """OpenScanHub entry point."""
 
 import argparse
+import errno
 import logging
+import os
 import platform
 import sys
 import threading
 import webbrowser
+from typing import Optional
 
 from . import __app_name__, __version__
-from .config import load_config, save_config, get_config_path
+from .config import _is_docker, get_config_dir, get_config_path, load_config
+from .logging_setup import get_log_dir, setup_logging
 
 logger = logging.getLogger(__name__)
 
-
-def setup_logging(level: str = "INFO") -> None:
-    logging.basicConfig(
-        level=getattr(logging, level.upper(), logging.INFO),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+_ADDR_IN_USE = {errno.EADDRINUSE, 10048}  # 10048 = WSAEADDRINUSE
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="openscan",
-        description=f"{__app_name__} v{__version__} - Universal network scanner bridge",
+        description=f"{__app_name__} v{__version__} - network scanner bridge",
     )
-    parser.add_argument(
-        "--port", type=int, default=None,
-        help="Web UI port (default: 8020)",
-    )
-    parser.add_argument(
-        "--no-browser", action="store_true",
-        help="Don't auto-open browser on first run",
-    )
-    parser.add_argument(
-        "--log-level", default=None,
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Logging level",
-    )
-    parser.add_argument(
-        "--version", action="version",
-        version=f"{__app_name__} {__version__}",
-    )
+    parser.add_argument("--port", type=int, default=None, help="Web UI port (default: 8020)")
+    parser.add_argument("--no-browser", action="store_true", help="Do not open the browser on start")
+    parser.add_argument("--log-level", default=None, choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                        help="Logging level")
+    parser.add_argument("--show-token", action="store_true",
+                        help="Print the access token and exit")
+    parser.add_argument("--version", action="version", version=f"{__app_name__} {__version__}")
+    return parser
 
-    args = parser.parse_args()
+
+def browser_url(port: int) -> str:
+    return f"http://localhost:{port}/"
+
+
+def show_error_box(title: str, message: str) -> None:
+    """Message box on Windows when tkinter is available; the log has it either way."""
+    if platform.system() != "Windows":
+        return
+    try:
+        import tkinter
+        from tkinter import messagebox
+
+        root = tkinter.Tk()
+        root.withdraw()
+        messagebox.showerror(title, message)
+        root.destroy()
+    except Exception as e:
+        logger.debug("No message box available: %s", e)
+
+
+def run(argv: Optional[list[str]] = None) -> int:
+    args = build_parser().parse_args(argv)
+
+    # Logging first, so even a broken config leaves a trace in the log file.
+    setup_logging(level=args.log_level or "INFO")
 
     config = load_config()
-
-    # CLI args override config
     if args.port:
-        config.web_port = args.port
+        config.web.port = args.port
     if args.log_level:
         config.log_level = args.log_level
+    setup_logging(config)
 
-    setup_logging(config.log_level)
+    if args.show_token:
+        print(config.web.api_token)
+        return 0
 
-    logger.info("%s v%s starting", __app_name__, __version__)
-    logger.info("Config: %s", get_config_path())
-    logger.info("Platform: %s", platform.system())
+    logger.info("%s v%s starting on %s", __app_name__, __version__, platform.system())
+    logger.info("Config file: %s", get_config_path())
+    log_dir = get_log_dir()
+    logger.info("Log folder: %s", log_dir if log_dir else "(not writable, console only)")
+    logger.info("Web UI: bind %s, port %d", config.web.bind, config.web.port)
+    logger.info("Access token (other devices sign in with this): %s", config.web.api_token)
 
-    # Start ADF monitor if configured
-    if config.wizard_completed and config.monitor.enabled:
-        from .monitor import start_monitor
-        start_monitor(config)
+    lock = None
+    if not _is_docker():
+        from .singleinstance import InstanceLock
 
-    # Start folder watcher if configured
-    if config.wizard_completed and config.folder_watch.enabled:
-        from .scanner.folder_watch import start_folder_watcher
-        start_folder_watcher(config)
+        lock = InstanceLock(get_config_dir())
+        other = lock.acquire(config.web.port, config.web.bind)
+        if other is not None:
+            url = browser_url(int(other.get("port") or config.web.port))
+            logger.info("OpenScanHub is already running (pid %s); opening %s", other.get("pid"), url)
+            if not args.no_browser:
+                webbrowser.open(url)
+            return 0
 
-    # Start FTP receiver if configured
-    if config.wizard_completed and config.ftp_receive.enabled:
-        if not config.ftp_receive.staging_dir:
-            from .config import get_config_dir
-            config.ftp_receive.staging_dir = str(get_config_dir() / "ftp_staging")
-        from .scanner.ftp_receive import start_ftp_receiver
-        start_ftp_receiver(config)
+    from .web.server import create_server
 
-    # Start web server
-    from .web.server import run_server
+    try:
+        server = create_server(config)
+    except OSError as e:
+        if lock:
+            lock.release()
+        if e.errno in _ADDR_IN_USE or getattr(e, "winerror", None) == 10048:
+            message = (f"OpenScanHub could not start because port {config.web.port} is already in use "
+                       "by another program. Close that program, or start OpenScanHub with "
+                       "--port 8021 (or set OPENSCAN_PORT).")
+        else:
+            message = f"OpenScanHub could not start its web page on port {config.web.port}: {e}"
+        logger.error(message)
+        show_error_box("OpenScanHub", message)
+        return 1
 
-    # Auto-open browser on first run (not in Docker)
+    from . import services
+
+    port = server.server_address[1]
+    services.set_running_web(config.web.bind, port)
+    report = services.start_all(config)
+    for problem in report["errors"]:
+        logger.warning(problem)
+
     if not args.no_browser and _should_open_browser():
-        url = f"http://localhost:{config.web_port}"
+        url = browser_url(port)
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
         logger.info("Opening browser to %s", url)
 
-    # Start system tray on Windows if running as frozen EXE
-    if _is_frozen() and platform.system() == "Windows":
-        # Run web server in a background thread, tray in main thread
-        server_thread = threading.Thread(
-            target=run_server,
-            args=(config,),
-            daemon=True,
-        )
-        server_thread.start()
-        _start_tray(config)
-    else:
-        # Run web server in main thread
-        run_server(config)
+    try:
+        if _is_frozen() and platform.system() == "Windows":
+            threading.Thread(target=server.serve_forever, daemon=True, name="web").start()
+            _start_tray(config, server)
+        else:
+            server.serve_forever()
+    except KeyboardInterrupt:
+        logger.info("Stopping")
+    finally:
+        services.stop_all()
+        server.server_close()
+        if lock:
+            lock.release()
+    return 0
+
+
+def main() -> None:
+    raise SystemExit(run())
 
 
 def _should_open_browser() -> bool:
-    """Determine if we should auto-open a browser."""
-    import os
-    # Don't open in Docker
-    if os.path.exists("/.dockerenv") or os.environ.get("OPENSCAN_DOCKER"):
+    if _is_docker():
         return False
-    # Don't open in SSH sessions
     if os.environ.get("SSH_CONNECTION"):
         return False
     return True
@@ -118,13 +153,21 @@ def _is_frozen() -> bool:
     return getattr(sys, "frozen", False)
 
 
-def _start_tray(config):
-    """Start the system tray icon (Windows only)."""
+def _start_tray(config, server) -> None:
+    """Run the tray icon on the main thread until Quit; without pystray, just serve."""
+    stop = threading.Event()
+
+    def on_quit():
+        server.shutdown()
+        stop.set()
+
     try:
         from .tray import create_tray
-        create_tray(config)
     except ImportError:
-        logger.warning("pystray not available, running without system tray")
+        create_tray = None
+    if create_tray is None or not create_tray(config, on_quit=on_quit):
+        logger.warning("No tray icon available; OpenScanHub keeps running in the background")
+        stop.wait()
 
 
 if __name__ == "__main__":
