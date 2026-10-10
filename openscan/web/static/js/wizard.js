@@ -10,6 +10,7 @@ const wizard = {
     lanInitially: false,
 
     async init() {
+        checkConfigWritable();
         try {
             [this.defaults, this.config] = await Promise.all([api.get('api/defaults'), api.get('api/config')]);
         } catch (e) {

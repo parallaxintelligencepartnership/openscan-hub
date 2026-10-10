@@ -10,7 +10,7 @@ import types
 
 import pytest
 
-from openscan import autostart, logging_setup, main as app_main
+from openscan import autostart, config, logging_setup, main as app_main
 from openscan.config import get_config_path, load_config
 from openscan.singleinstance import InstanceLock, pid_alive
 
@@ -239,11 +239,24 @@ def test_logging_setup_is_idempotent(config_dir):
 
 # --- startup survival -----------------------------------------------------------------
 
-def test_show_token_prints_and_exits(config_dir, capsys):
+def test_show_token_prints_the_saved_token(config_dir, capsys):
+    saved = load_config().web.api_token  # what a started app writes
     assert app_main.run(["--show-token"]) == 0
-    token = capsys.readouterr().out.strip()
-    assert len(token) == 32
-    assert load_config().web.api_token == token
+    assert capsys.readouterr().out.strip() == saved
+
+
+def test_show_token_never_generates_a_token(config_dir, capsys):
+    assert app_main.run(["--show-token"]) == 1
+    out = capsys.readouterr().out
+    assert "No saved access token yet: the config folder is not writable " \
+           "or the app has not started" in out
+    assert not get_config_path().exists()
+
+
+def test_show_token_with_a_saved_file_without_token(config_dir, capsys):
+    get_config_path().write_text(json.dumps({"web": {"port": 8020}}))
+    assert app_main.run(["--show-token"]) == 1
+    assert "No saved access token yet" in capsys.readouterr().out
 
 
 def test_port_in_use_logs_clear_error(config_dir, monkeypatch, caplog):
@@ -272,14 +285,63 @@ def test_malformed_config_is_kept_aside(config_dir):
 
 
 @pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0, reason="needs POSIX permissions as non-root")
-def test_unwritable_config_dir_still_starts(config_dir, capsys):
+def test_show_token_in_unwritable_config_dir_exits_1(config_dir, capsys):
     os.chmod(config_dir, 0o500)
     try:
-        assert app_main.run(["--show-token"]) == 0
-        assert len(capsys.readouterr().out.strip()) == 32
+        assert app_main.run(["--show-token"]) == 1
+        out = capsys.readouterr().out
+        assert "No saved access token yet" in out
+        assert len(out.strip()) != 32
         assert logging_setup.get_log_dir() != config_dir / "logs"
     finally:
         os.chmod(config_dir, 0o700)
+
+
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0, reason="needs POSIX permissions as non-root")
+def test_unwritable_config_dir_logs_the_remedy_and_keeps_going(config_dir, monkeypatch, caplog):
+    monkeypatch.setenv("OPENSCAN_DOCKER", "1")  # no instance lock, like the container
+    os.chmod(config_dir, 0o500)
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(1)
+    port = sock.getsockname()[1]
+    try:
+        with caplog.at_level(logging.ERROR):
+            # Reaches the web server (port taken here, so it returns 1 there).
+            code = app_main.run(["--no-browser", "--port", str(port)])
+    finally:
+        sock.close()
+        os.chmod(config_dir, 0o700)
+    assert code == 1
+    assert any("already in use" in r.getMessage() for r in caplog.records)
+    remedy = [r.getMessage() for r in caplog.records
+              if r.levelno == logging.ERROR and "not writable" in r.getMessage()]
+    assert remedy and f"chown -R {os.getuid()}:{os.getgid()} " in remedy[0]
+    assert config.config_dir_writable() is False
+
+
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0, reason="needs POSIX permissions as non-root")
+def test_health_reports_unwritable_config(live_server, config_dir):
+    assert live_server.get("/api/health").json()["config_writable"] is True
+    os.chmod(config_dir, 0o500)
+    try:
+        assert config.check_config_dir_writable() is False
+    finally:
+        os.chmod(config_dir, 0o700)
+    data = live_server.get("/api/health").json()
+    assert data["status"] == "degraded" and data["config_writable"] is False
+    assert data["app"] == "openscanhub"
+    assert config.check_config_dir_writable() is True
+    assert live_server.get("/api/health").json()["status"] == "ok"
+
+
+def test_dashboard_and_wizard_carry_the_banner():
+    from openscan.web.server import STATIC_DIR
+    text = "Settings cannot be saved: the config folder is not writable. See the log."
+    for page in ("dashboard.html", "wizard.html"):
+        html = (STATIC_DIR / "templates" / page).read_text()
+        assert 'id="config-banner"' in html and text in html
+    assert "config_writable" in (STATIC_DIR / "js" / "common.js").read_text()
 
 
 # --- tray menu ------------------------------------------------------------------------

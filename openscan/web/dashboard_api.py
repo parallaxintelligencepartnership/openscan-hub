@@ -9,7 +9,7 @@ from typing import Any, Optional
 
 from .. import __version__
 from .. import multipage
-from ..config import AppConfig
+from ..config import AppConfig, config_dir_writable
 from ..output import generate_filename, save_scan_for_config, written_name
 from ..scanner.base import (
     ScannerInfo, ScanSettings, ScanSource, release_scan, scan_lock, try_acquire_scan,
@@ -337,8 +337,10 @@ def start_scan_async(source: ScanSource, wait: float = 5.0) -> bool:
 @route("GET", "/api/health", public=True, query_token=True)
 def api_health(handler, query):
     config = get_config()
+    writable = config_dir_writable()
     handler._send_json({
-        "status": "ok",
+        "status": "ok" if writable else "degraded",
+        "config_writable": writable,
         "app": "openscanhub",
         "version": __version__,
         "scanner_online": scanner_online(config),

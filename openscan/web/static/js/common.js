@@ -21,6 +21,16 @@ const api = {
     post(path, body) { return this.request('POST', path, body); },
 };
 
+/* Show the red banner when the server cannot save its settings. */
+async function checkConfigWritable() {
+    const banner = document.getElementById('config-banner');
+    if (!banner) return;
+    try {
+        const data = await api.get('api/health');
+        banner.classList.toggle('hidden', data.config_writable !== false);
+    } catch (e) { /* the page shows its own "not responding" state */ }
+}
+
 function esc(str) {
     if (str == null) return '';
     const div = document.createElement('div');

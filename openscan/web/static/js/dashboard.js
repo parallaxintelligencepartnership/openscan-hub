@@ -5,6 +5,7 @@ const dashboard = {
     multipageSession: null,
 
     init() {
+        checkConfigWritable();
         this.refreshStatus();
         this.refreshHistory();
         this.refreshProblems();

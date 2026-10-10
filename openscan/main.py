@@ -12,7 +12,8 @@ import webbrowser
 from typing import Optional
 
 from . import __app_name__, __version__
-from .config import _is_docker, get_config_dir, get_config_path, load_config, set_override
+from .config import (_is_docker, check_config_dir_writable, config_dir_remedy, get_config_dir,
+                     get_config_path, load_config, read_saved_token, set_override)
 from .logging_setup import get_log_dir, setup_logging
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,18 @@ def run(argv: Optional[list[str]] = None) -> int:
     # Logging first, so even a broken config leaves a trace in the log file.
     setup_logging(level=args.log_level or "INFO")
 
+    if args.show_token:
+        # Read only: a second process must never generate a token of its own,
+        # because it could never match the one the server is using.
+        token = read_saved_token()
+        if not token:
+            print("No saved access token yet: the config folder is not writable "
+                  "or the app has not started")
+            return 1
+        print(token)
+        return 0
+
+    config_writable = check_config_dir_writable()
     config = load_config()
     if args.port:
         set_override(config, "web", "port", args.port)
@@ -68,18 +81,18 @@ def run(argv: Optional[list[str]] = None) -> int:
         set_override(config, "", "log_level", args.log_level)
     setup_logging(config)
 
-    if args.show_token:
-        print(config.web.api_token)
-        return 0
-
     logger.info("%s v%s starting on %s", __app_name__, __version__, platform.system())
     logger.info("Config file: %s", get_config_path())
+    if not config_writable:
+        logger.error("The config folder %s is not writable, so settings and the access token "
+                     "cannot be saved. To fix it, %s, then restart OpenScanHub.",
+                     get_config_dir(), config_dir_remedy())
     log_dir = get_log_dir()
     logger.info("Log folder: %s", log_dir if log_dir else "(not writable, console only)")
     logger.info("Web UI: bind %s, port %d", config.web.bind, config.web.port)
     # Never log the token itself: logs get shared in bug reports.
     logger.info("Access token for other devices: see Settings, or run "
-                "'openscan --show-token' (in Docker: 'python -m openscan --show-token')")
+                "'openscan --show-token' (in Docker: 'docker exec openscan-hub openscan --show-token')")
 
     lock = None
     if not _is_docker():

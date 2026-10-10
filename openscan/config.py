@@ -154,6 +154,60 @@ def _is_frozen() -> bool:
     return getattr(sys, "frozen", False)
 
 
+_config_dir_writable: Optional[bool] = None
+
+
+def check_config_dir_writable(config_dir: Optional[Path] = None) -> bool:
+    """Create and delete a test file in the config folder and remember the result.
+
+    A bind-mounted /config owned by root is not writable by the container
+    user; without this check the app would run on an in-memory token that
+    is lost on restart and never matches ``--show-token``."""
+    global _config_dir_writable
+    d = config_dir or get_config_dir()
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        fd, name = tempfile.mkstemp(dir=str(d), prefix=".openscan-write-test.", suffix=".tmp")
+        os.close(fd)
+        os.unlink(name)
+        _config_dir_writable = True
+    except OSError:
+        _config_dir_writable = False
+    return _config_dir_writable
+
+
+def config_dir_writable() -> bool:
+    """Result of the last check_config_dir_writable(); True if never checked."""
+    return _config_dir_writable is not False
+
+
+def config_dir_remedy(config_dir: Optional[Path] = None) -> str:
+    """One-line fix for an unwritable config folder, with this process's uid/gid."""
+    d = config_dir or get_config_dir()
+    if hasattr(os, "getuid"):
+        uid, gid = os.getuid(), os.getgid()
+        host = "<host folder mounted at %s>" % d if _is_docker() else str(d)
+        return "run: chown -R %d:%d %s" % (uid, gid, host)
+    return "give this user permission to write to %s" % d
+
+
+def read_saved_token(path: Optional[Path] = None) -> str:
+    """The access token as the running app sees it, without generating one.
+
+    OPENSCAN_TOKEN wins, as it does in load_config; otherwise the token saved
+    in the config file. Returns "" if there is none."""
+    env = os.environ.get("OPENSCAN_TOKEN", "")
+    if env:
+        return env
+    config_path = path or get_config_path()
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        token = data["web"]["api_token"]
+    except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError):
+        return ""
+    return token if isinstance(token, str) else ""
+
+
 def load_config(path: Optional[Path] = None) -> AppConfig:
     """Load config from JSON file, returning defaults if not found or broken."""
     config_path = path or get_config_path()

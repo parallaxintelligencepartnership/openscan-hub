@@ -45,6 +45,8 @@ def config_dir(tmp_path, monkeypatch):
     """An empty config folder used by get_config_dir()."""
     for name in _ENV:
         monkeypatch.delenv(name, raising=False)
+    from openscan import config as config_module
+    monkeypatch.setattr(config_module, "_config_dir_writable", None, raising=False)
     d = tmp_path / "config"
     d.mkdir()
     monkeypatch.setenv("OPENSCAN_CONFIG_DIR", str(d))
