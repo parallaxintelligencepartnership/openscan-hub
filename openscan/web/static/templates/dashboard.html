@@ -4,20 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OpenScanHub</title>
-    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-    <a href="/wizard" class="settings-link" title="Settings">&#9881;</a>
+    <a href="settings" class="settings-link" title="Settings" aria-label="Settings">&#9881;</a>
 
     <div class="container">
         <div class="header">
             <h1>OpenScanHub</h1>
         </div>
 
-        <!-- Scanner Status -->
+        <!-- Scanner status -->
         <div class="card" id="status-card">
             <div style="display: flex; align-items: center; gap: 12px;">
-                <span class="status-dot" id="status-dot"></span>
+                <span class="status-dot status-unknown" id="status-dot"></span>
                 <div>
                     <div style="font-weight: 600;" id="scanner-name">Loading...</div>
                     <div style="font-size: 13px; color: var(--gray-500);" id="scanner-detail"></div>
@@ -25,26 +25,44 @@
             </div>
         </div>
 
-        <!-- Scan Buttons -->
-        <div class="scan-buttons mb-16">
-            <div class="scan-button-group" id="btn-adf-group">
+        <!-- Scan buttons (only when OpenScanHub drives the scanner) -->
+        <div class="scan-buttons mb-16 hidden" id="scan-buttons">
+            <div class="scan-button-group hidden" id="btn-adf-group">
                 <button class="btn btn-primary btn-scan" id="btn-adf" onclick="dashboard.scan('adf')">
-                    Document Feeder
+                    Scan from feeder
                 </button>
             </div>
             <div class="scan-button-group">
                 <button class="btn btn-primary btn-scan" id="btn-flatbed" onclick="dashboard.scan('flatbed')">
-                    Flatbed Glass
+                    Scan from flatbed
                 </button>
                 <button class="btn btn-secondary btn-scan-multi" onclick="dashboard.startMultipage('flatbed')">
-                    Multi Page
+                    Several pages
                 </button>
             </div>
         </div>
 
-        <!-- Recent Scans -->
+        <!-- Receive-only setups -->
+        <div class="alert alert-info hidden" id="receive-info"></div>
+
+        <!-- Scans waiting to retry -->
+        <div class="card panel-warning hidden" id="queue-card">
+            <h2>Scans waiting to retry</h2>
+            <p>These scans are saved on this computer but could not reach a destination yet. OpenScanHub keeps trying.</p>
+            <ul class="problem-list" id="queue-list"></ul>
+            <button class="btn btn-secondary btn-small mt-8" onclick="dashboard.retryAll()">Retry now</button>
+        </div>
+
+        <!-- Recent problems -->
+        <div class="card panel-error hidden" id="errors-card">
+            <h2>Recent problems</h2>
+            <ul class="problem-list" id="errors-list"></ul>
+            <p class="hint mt-8">More detail is in the log file. Find it under Settings, Troubleshooting.</p>
+        </div>
+
+        <!-- Recent scans -->
         <div class="card">
-            <h2>Recent Scans</h2>
+            <h2>Recent scans</h2>
             <ul class="history-list" id="history-list">
                 <li class="empty-state">
                     <div class="icon">&#128196;</div>
@@ -67,7 +85,7 @@
     <div class="multipage-overlay" id="multipage-overlay">
         <div class="multipage-modal">
             <header class="multipage-header">
-                <h2>Multi-Page Scan</h2>
+                <h2>Several pages, one file</h2>
                 <span class="multipage-count" id="multipage-count">0 pages scanned</span>
             </header>
 
@@ -80,10 +98,10 @@
 
             <div class="multipage-actions">
                 <button class="btn btn-primary" id="btn-scan-page" onclick="dashboard.scanMultipagePage()">
-                    Scan Page
+                    Scan page
                 </button>
                 <button class="btn btn-success" id="btn-save-multipage" onclick="dashboard.saveMultipage()" disabled>
-                    Save Document
+                    Save document
                 </button>
                 <button class="btn btn-secondary" onclick="dashboard.cancelMultipage()">
                     Cancel
@@ -97,9 +115,9 @@
         </div>
     </div>
 
-    <!-- Toast container -->
     <div class="toast-container" id="toast-container"></div>
 
-    <script src="/js/dashboard.js"></script>
+    <script src="js/common.js"></script>
+    <script src="js/dashboard.js"></script>
 </body>
 </html>

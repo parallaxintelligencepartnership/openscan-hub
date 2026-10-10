@@ -804,3 +804,37 @@ body {
 .mt-16 { margin-top: 16px; }
 .mt-24 { margin-top: 24px; }
 .mb-16 { margin-bottom: 16px; }
+
+/* --- v0.3 additions: settings, login, panels --- */
+.badge-ftp { background: var(--warning-light); color: var(--warning); }
+.toast-warning { background: var(--warning); color: white; }
+.status-unknown { background: var(--gray-400); }
+.hint { display: block; color: var(--gray-500); font-size: 13px; margin-top: 4px; line-height: 1.4; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row > input { flex: 1; min-width: 160px; }
+.row input[type="text"], .row input[type="password"] {
+    padding: 10px; border: 2px solid var(--gray-200); border-radius: 8px; font-size: 16px;
+    background: var(--gray-50); color: var(--gray-800);
+}
+.btn-small { padding: 8px 14px; font-size: 14px; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break: break-all; }
+.card details > summary { cursor: pointer; font-weight: 600; color: var(--gray-700); }
+details.section > summary { list-style: none; }
+details.section > summary h2 { display: inline; }
+details.section > summary::-webkit-details-marker { display: none; }
+details.section > summary::after { content: " \25BE"; color: var(--gray-400); }
+details.section[open] > summary::after { content: " \25B4"; }
+.choice { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; cursor: pointer; font-size: 15px; }
+.choice input { margin-top: 4px; }
+.problem-list { list-style: none; padding: 0; margin: 0; font-size: 13px; }
+.problem-list li { padding: 8px 0; border-bottom: 1px solid var(--gray-200); }
+.problem-list li:last-child { border-bottom: none; }
+.problem-list .when { color: var(--gray-500); margin-right: 6px; }
+.panel-warning { border-left: 4px solid var(--warning); }
+.panel-error { border-left: 4px solid var(--error); }
+.save-bar { position: sticky; bottom: 0; padding: 12px 0; background: var(--gray-50); display: flex; gap: 8px; justify-content: flex-end; }
+.result-ok { color: var(--success); }
+.result-warn { color: var(--warning); }
+.result-bad { color: var(--error); }
+.top-links { position: fixed; top: 16px; left: 16px; font-size: 14px; }
+.top-links a { color: var(--gray-500); text-decoration: none; }

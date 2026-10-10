@@ -1,233 +1,182 @@
 """Setup wizard API endpoints."""
 
 import logging
-import threading
+import platform
+import socket
+from pathlib import Path
 
-from ..config import (
-    AppConfig, ScannerConfig, OutputConfig, PaperlessConfig,
-    MonitorConfig, FtpReceiveConfig, save_config, load_config,
-)
+from ..config import _is_docker
 from ..discovery import discover_all, probe_scanner
 from ..output import test_paperless_connection
-from ..scanner.base import ScanSettings, ScanSource, ScannerInfo
-from .server import route, get_config, set_config
+from ..scanner.base import ScannerInfo, ScanSettings, release_scan, try_acquire_scan
+from .dashboard_api import BUSY_MESSAGE, clear_caps_cache, parse_source
+from .server import BadRequest, get_config, route
+from .settings_api import commit_config, ensure_folder, merge_config
 
 logger = logging.getLogger(__name__)
 
-# Cache discovery results during wizard flow
-_discovery_cache: list[dict] = []
-_discovery_lock = threading.Lock()
+DISCOVER_MIN, DISCOVER_MAX = 1.0, 15.0
 
 
-@route("GET", "/api/discover")
-def api_discover(handler, query):
-    """Run scanner discovery and return found scanners."""
-    global _discovery_cache
-    timeout = float(query.get("timeout", [5])[0])
+def default_output_folder() -> str:
+    """Where scans go unless the user picks something else."""
+    if _is_docker():
+        return "/scans"
+    if platform.system() == "Windows":
+        return str(Path.home() / "Documents" / "Scans")
+    return str(Path.home() / "Scans")
 
-    scanners = discover_all(timeout=timeout)
 
-    with _discovery_lock:
-        _discovery_cache = [s.to_dict() for s in scanners]
+def lan_ip() -> str:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("192.0.2.1", 9))  # chooses the outgoing interface; sends nothing
+            return s.getsockname()[0]
+    except OSError:
+        return ""
 
+
+def _int(value, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _scanner_from(body: dict) -> ScannerInfo:
+    return ScannerInfo(
+        name=str(body.get("name", "")),
+        ip=str(body.get("ip", "")),
+        port=_int(body.get("port", 80), 80),
+        protocol=str(body.get("protocol", "escl")),
+        model=str(body.get("model", "")),
+        path=str(body.get("path", "")),
+    )
+
+
+def _impl(protocol: str):
+    if protocol == "escl":
+        from ..scanner.escl import EsclScanner
+        return EsclScanner()
+    if protocol == "wsd":
+        from ..scanner.wsd import WsdScanner
+        return WsdScanner()
+    raise BadRequest(f"Unknown protocol: {protocol}")
+
+
+@route("GET", "/api/defaults")
+def api_defaults(handler, query):
+    cfg = get_config()
     handler._send_json({
-        "scanners": _discovery_cache,
-        "count": len(scanners),
+        "output_folder": cfg.output.folder or default_output_folder(),
+        "default_output_folder": default_output_folder(),
+        "platform": platform.system(),
+        "is_docker": _is_docker(),
+        "lan_ip": lan_ip(),
     })
+
+
+@route("POST", "/api/discover")
+def api_discover(handler, query):
+    """Search the network for scanners. Body: {"timeout": seconds (1 to 15)}."""
+    body = handler.read_json_body()
+    try:
+        timeout = float(body.get("timeout", 5))
+    except (TypeError, ValueError):
+        timeout = 5.0
+    timeout = max(DISCOVER_MIN, min(DISCOVER_MAX, timeout))
+    scanners = discover_all(timeout=timeout)
+    found = [s.to_dict() for s in scanners]
+    handler._send_json({"scanners": found, "count": len(found)})
 
 
 @route("POST", "/api/probe")
 def api_probe(handler, query):
-    """Probe a specific IP for a scanner (manual entry)."""
+    """Check one address for a scanner (manual entry)."""
     body = handler.read_json_body()
-    ip = body.get("ip", "")
-    port = int(body.get("port", 80))
-    protocol = body.get("protocol", "escl")
-
+    ip = str(body.get("ip", "")).strip()
     if not ip:
-        handler._send_json({"error": "IP address required"}, status=400)
-        return
-
-    scanner = probe_scanner(ip, port, protocol)
+        raise BadRequest("Please enter the scanner's IP address")
+    protocol = str(body.get("protocol", "escl"))
+    scanner = probe_scanner(ip, _int(body.get("port", 80), 80), protocol)
     if scanner:
         handler._send_json({"scanner": scanner.to_dict(), "found": True})
     else:
-        handler._send_json({"found": False, "error": "No scanner found at that address"})
+        handler._send_json({"found": False, "error": "No scanner answered at that address"})
 
 
 @route("POST", "/api/test-scanner")
 def api_test_scanner(handler, query):
-    """Test connectivity to a specific scanner."""
+    """Check that a scanner answers and report what it can do."""
     body = handler.read_json_body()
-
-    scanner_info = ScannerInfo(
-        name=body.get("name", ""),
-        ip=body.get("ip", ""),
-        port=int(body.get("port", 80)),
-        protocol=body.get("protocol", "escl"),
-        model=body.get("model", ""),
-        path=body.get("path", ""),
-    )
-
-    protocol = body.get("protocol", "escl")
-    if protocol == "escl":
-        from ..scanner.escl import EsclScanner
-        escl = EsclScanner()
-        connected = escl.test_connection(scanner_info)
-        if connected:
-            caps = escl.get_capabilities(scanner_info)
-            status = escl.get_status(scanner_info)
-            handler._send_json({
-                "connected": True,
-                "capabilities": caps.to_dict(),
-                "status": status.to_dict(),
-            })
-        else:
-            handler._send_json({"connected": False, "error": "Cannot reach scanner"})
-    elif protocol == "wsd":
-        from ..scanner.wsd import WsdScanner
-        wsd = WsdScanner()
-        connected = wsd.test_connection(scanner_info)
-        if connected:
-            caps = wsd.get_capabilities(scanner_info)
-            handler._send_json({
-                "connected": True,
-                "capabilities": caps.to_dict(),
-            })
-        else:
-            handler._send_json({"connected": False, "error": "Cannot reach scanner"})
-    else:
-        handler._send_json({"connected": False, "error": f"Unknown protocol: {protocol}"})
+    info = _scanner_from(body)
+    impl = _impl(info.protocol)
+    if not impl.test_connection(info):
+        handler._send_json({"connected": False, "error": "Cannot reach the scanner"})
+        return
+    data = {"connected": True, "capabilities": impl.get_capabilities(info).to_dict()}
+    try:
+        data["status"] = impl.get_status(info).to_dict()
+    except Exception as e:
+        logger.debug("Status check failed: %s", e)
+    handler._send_json(data)
 
 
 @route("POST", "/api/test-scan")
 def api_test_scan(handler, query):
-    """Perform a test scan and return metadata (not the actual PDF)."""
+    """Scan one low-resolution page from the given scanner without saving it."""
     body = handler.read_json_body()
-
-    scanner_info = ScannerInfo(
-        name=body.get("name", ""),
-        ip=body.get("ip", ""),
-        port=int(body.get("port", 80)),
-        protocol=body.get("protocol", "escl"),
-        path=body.get("path", ""),
-    )
-
-    source = body.get("source", "Platen")
-    settings = ScanSettings(
-        source=ScanSource.ADF if source == "Feeder" else ScanSource.FLATBED,
-        resolution=150,  # Low res for test scan speed
-    )
-
-    protocol = body.get("protocol", "escl")
+    info = _scanner_from(body)
+    impl = _impl(info.protocol)
+    settings = ScanSettings(source=parse_source(body.get("source", "flatbed")), resolution=150)
+    if not try_acquire_scan(timeout=0):
+        handler._send_json({"success": False, "error": BUSY_MESSAGE}, status=409)
+        return
     try:
-        if protocol == "escl":
-            from ..scanner.escl import EsclScanner
-            pdf_data = EsclScanner().scan(scanner_info, settings)
-        elif protocol == "wsd":
-            from ..scanner.wsd import WsdScanner
-            pdf_data = WsdScanner().scan(scanner_info, settings)
-        else:
-            handler._send_json({"error": f"Unknown protocol: {protocol}"}, status=400)
-            return
-
-        handler._send_json({
-            "success": True,
-            "size_bytes": len(pdf_data),
-            "size_readable": _format_size(len(pdf_data)),
-        })
+        data = impl.scan(info, settings)
     except Exception as e:
-        logger.exception("Test scan failed")
+        logger.warning("Test scan failed: %s", e)
         handler._send_json({"success": False, "error": str(e)})
+        return
+    finally:
+        release_scan()
+    handler._send_json({"success": True, "size_bytes": len(data), "size_readable": _format_size(len(data))})
 
 
 @route("POST", "/api/test-paperless")
 def api_test_paperless(handler, query):
-    """Test Paperless-NGX connection."""
+    """Test a Paperless-NGX address. A blank token means "use the saved one"."""
     body = handler.read_json_body()
-    url = body.get("url", "")
-    token = body.get("token", "")
-
+    url = str(body.get("url", "")).strip()
+    token = str(body.get("token", "")).strip() or get_config().paperless.api_token
     if not url:
-        handler._send_json({"error": "Paperless URL required"}, status=400)
-        return
-
-    result = test_paperless_connection(url, token)
-    handler._send_json(result)
+        raise BadRequest("Please enter the Paperless-NGX address")
+    handler._send_json(test_paperless_connection(url, token))
 
 
 @route("POST", "/api/save-config")
 def api_save_config(handler, query):
-    """Save the wizard configuration."""
+    """Save the wizard. Merges into the existing config; never wipes other settings."""
     body = handler.read_json_body()
-
-    config = get_config()
-
-    # Scanner
-    scanner_data = body.get("scanner", {})
-    config.scanner = ScannerConfig(
-        ip=scanner_data.get("ip", ""),
-        port=int(scanner_data.get("port", 80)),
-        protocol=scanner_data.get("protocol", "escl"),
-        name=scanner_data.get("name", ""),
-        model=scanner_data.get("model", ""),
-        path=scanner_data.get("path", ""),
-    )
-
-    # Output
-    output_data = body.get("output", {})
-    config.output = OutputConfig(
-        folder=output_data.get("folder", ""),
-        filename_pattern=output_data.get("filename_pattern", "scan_{date}_{time}_{n}"),
-    )
-
-    # Paperless
-    paperless_data = body.get("paperless", {})
-    config.paperless = PaperlessConfig(
-        enabled=paperless_data.get("enabled", False),
-        mode=paperless_data.get("mode", "consume"),
-        consume_folder=paperless_data.get("consume_folder", ""),
-        api_url=paperless_data.get("api_url", ""),
-        api_token=paperless_data.get("api_token", ""),
-        tags=paperless_data.get("tags", paperless_data.get("default_tags", [])),
-    )
-
-    # Monitor
-    monitor_data = body.get("monitor", {})
-    config.monitor = MonitorConfig(
-        enabled=monitor_data.get("enabled", False),
-        poll_interval=float(monitor_data.get("poll_interval", 3.0)),
-    )
-
-    # Folder watch
-    folder_data = body.get("folder_watch", {})
-    if folder_data.get("enabled"):
-        from ..config import FolderWatchConfig
-        config.folder_watch = FolderWatchConfig(
-            enabled=True,
-            watch_folder=folder_data.get("watch_folder", ""),
-        )
-
-    # FTP receiver
-    ftp_data = body.get("ftp_receive", {})
-    config.ftp_receive = FtpReceiveConfig(
-        enabled=ftp_data.get("enabled", False),
-        port=int(ftp_data.get("port", 2121)),
-        username=ftp_data.get("username", "scan"),
-        password=ftp_data.get("password", "scan"),
-        delete_after_routing=ftp_data.get("delete_after_routing", True),
-    )
-
-    config.wizard_completed = True
-    save_config(config)
-    set_config(config)
-
-    handler._send_json({"saved": True})
+    old = get_config()
+    new = merge_config(old, body)
+    if not new.output.folder:
+        raise BadRequest("Please choose a folder for your scans")
+    problem = ensure_folder(new.output.folder)
+    if problem:
+        raise BadRequest(problem)
+    new.wizard_completed = True
+    clear_caps_cache()
+    report = commit_config(old, new)
+    handler._send_json({
+        "saved": True,
+        "restart_needed": report["restart_needed"],
+        "warnings": report["errors"],
+    })
 
 
 @route("GET", "/api/wizard-status")
 def api_wizard_status(handler, query):
-    """Get current wizard completion state."""
     config = get_config()
     handler._send_json({
         "wizard_completed": config.wizard_completed,
@@ -236,7 +185,7 @@ def api_wizard_status(handler, query):
     })
 
 
-def _format_size(size_bytes: int) -> str:
+def _format_size(size_bytes: float) -> str:
     for unit in ("B", "KB", "MB"):
         if size_bytes < 1024:
             return f"{size_bytes:.1f} {unit}"
