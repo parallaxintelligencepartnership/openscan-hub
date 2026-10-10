@@ -1,305 +1,173 @@
-/* OpenScanHub - Setup Wizard Logic */
+/* OpenScanHub - First-run setup (three steps) */
 
 const wizard = {
-    currentStep: 1,
-    totalSteps: 6,
-    selectedScanner: null,
-    isFolderWatch: false,
-    isFtpReceive: false,
-    ftpConfig: null,
+    step: 1,
+    scanner: null,      // a found or probed scanner
+    pushMode: null,     // 'ftp' | 'folder' | null
+    defaults: {},
+    config: {},
+    secrets: {},
+    lanInitially: false,
 
-    nextStep() {
-        if (this.currentStep >= this.totalSteps) return;
-
-        // Validate current step
-        if (!this.validateStep(this.currentStep)) return;
-
-        this.currentStep++;
-        this.showStep(this.currentStep);
-
-        // Prepare content for the new step
-        if (this.currentStep === 3) this.prepareTestStep();
-        if (this.currentStep === 6) this.prepareSummary();
-    },
-
-    prevStep() {
-        if (this.currentStep <= 1) return;
-        this.currentStep--;
-        this.showStep(this.currentStep);
-    },
-
-    showStep(step) {
-        // Update step dots
-        document.querySelectorAll('.step-dot').forEach(dot => {
-            const s = parseInt(dot.dataset.step);
-            dot.classList.remove('active', 'completed');
-            if (s === step) dot.classList.add('active');
-            else if (s < step) {
-                dot.classList.add('completed');
-                dot.textContent = '\u2713';
-            } else {
-                dot.textContent = s;
-            }
-        });
-
-        // Show/hide step content
-        document.querySelectorAll('.step-content').forEach(content => {
-            content.classList.remove('active');
-            if (parseInt(content.dataset.step) === step) {
-                content.classList.add('active');
-            }
-        });
-    },
-
-    validateStep(step) {
-        switch (step) {
-            case 2:
-                if (!this.selectedScanner && !this.isFolderWatch && !this.isFtpReceive) {
-                    return false;
-                }
-                return true;
-            case 4:
-                const folder = document.getElementById('output-folder').value.trim();
-                if (!folder) {
-                    document.getElementById('output-folder').style.borderColor = 'var(--error)';
-                    return false;
-                }
-                document.getElementById('output-folder').style.borderColor = '';
-                return true;
-            default:
-                return true;
+    async init() {
+        try {
+            [this.defaults, this.config] = await Promise.all([api.get('api/defaults'), api.get('api/config')]);
+        } catch (e) {
+            this.defaults = {};
+            this.config = {};
         }
+        const folder = document.getElementById('output-folder');
+        folder.value = this.defaults.output_folder || '';
+        folder.placeholder = this.defaults.default_output_folder || '';
+        document.getElementById('folder-hint').textContent = this.folderHint();
+        document.getElementById('watch-folder').placeholder = this.defaults.platform === 'Windows'
+            ? '\\\\NAS\\ScannerInbox' : '/mnt/scanner-inbox';
+
+        const bind = (this.config.web || {}).bind || '127.0.0.1';
+        this.lanInitially = !(bind === '127.0.0.1' || bind === 'localhost' || bind === '::1');
+        document.getElementById('allow-lan').checked = this.lanInitially;
+        this.discover();
     },
 
-    // Step 2: Discover scanners
+    folderHint() {
+        if (this.defaults.is_docker) {
+            return 'Inside Docker, /scans is the folder you mapped in docker-compose.yml. ' +
+                   'The folder is created if it does not exist.';
+        }
+        if (this.defaults.platform === 'Windows') {
+            return 'To save on a NAS, type its network path, for example \\\\NAS\\Scans. ' +
+                   'The folder is created if it does not exist.';
+        }
+        return 'To save on a NAS, use the folder where the share is mounted, for example ' +
+               (this.defaults.platform === 'Darwin' ? '/Volumes/Scans' : '/mnt/nas/scans') +
+               '. The folder is created if it does not exist.';
+    },
+
+    show(step) {
+        this.step = step;
+        document.querySelectorAll('.step-dot').forEach(dot => {
+            const s = parseInt(dot.dataset.step, 10);
+            dot.classList.toggle('active', s === step);
+            dot.classList.toggle('completed', s < step);
+            dot.textContent = s < step ? '✓' : String(s);
+        });
+        document.querySelectorAll('.step-content').forEach(c => {
+            c.classList.toggle('active', parseInt(c.dataset.step, 10) === step);
+        });
+        window.scrollTo(0, 0);
+    },
+
+    next() { if (this.step === 1 && this.validateStep1()) this.show(2); },
+    back() { if (this.step > 1) this.show(this.step - 1); },
+
+    showError(id, message) {
+        const el = document.getElementById(id);
+        el.textContent = message || '';
+        el.classList.toggle('hidden', !message);
+    },
+
+    updateNext() {
+        document.getElementById('btn-step1-next').disabled = !(this.scanner || this.pushMode);
+        const hasFeeder = !!(this.scanner && (this.scanner.sources || []).includes('Feeder'));
+        document.getElementById('feeder-option').classList.toggle('hidden', !hasFeeder);
+        document.getElementById('watch-folder-group').classList.toggle('hidden', this.pushMode !== 'folder');
+    },
+
+    validateStep1() {
+        if (this.pushMode === 'folder') {
+            const watch = document.getElementById('watch-folder').value.trim();
+            if (!watch) {
+                this.showError('step1-error', 'Please enter the folder your scanner saves into.');
+                return false;
+            }
+        }
+        this.showError('step1-error', '');
+        return !!(this.scanner || this.pushMode);
+    },
+
+    // --- Step 1 ---
+
     async discover() {
         const btn = document.getElementById('btn-discover');
         const loading = document.getElementById('discover-loading');
         const list = document.getElementById('scanner-list');
-        const noScanners = document.getElementById('no-scanners');
-
         btn.classList.add('hidden');
         loading.classList.remove('hidden');
+        document.getElementById('no-scanners').classList.add('hidden');
         list.innerHTML = '';
-        noScanners.classList.add('hidden');
-
         try {
-            const resp = await fetch('/api/discover?timeout=5');
-            const data = await resp.json();
-
-            loading.classList.add('hidden');
-            btn.classList.remove('hidden');
-            btn.textContent = 'Search Again';
-
-            if (data.scanners && data.scanners.length > 0) {
-                data.scanners.forEach(scanner => {
-                    const li = document.createElement('li');
-                    li.className = 'scanner-item';
-                    li.onclick = () => this.selectScanner(scanner, li);
-                    li.innerHTML = `
-                        <div class="icon">\uD83D\uDDA8\uFE0F</div>
-                        <div class="info">
-                            <div class="name">${this.esc(scanner.display_name || scanner.name)}</div>
-                            <div class="detail">${this.esc(scanner.ip)}:${scanner.port}</div>
-                        </div>
-                        <span class="badge badge-${scanner.protocol}">${scanner.protocol.toUpperCase()}</span>
-                    `;
-                    list.appendChild(li);
-                });
-            } else {
-                noScanners.classList.remove('hidden');
-            }
+            const data = await api.post('api/discover', { timeout: 5 });
+            const scanners = data.scanners || [];
+            scanners.forEach(scanner => {
+                const li = document.createElement('li');
+                li.className = 'scanner-item';
+                li.onclick = () => this.selectScanner(scanner, li);
+                const proto = String(scanner.protocol || '');
+                li.innerHTML = `
+                    <div class="icon">&#128424;</div>
+                    <div class="info">
+                        <div class="name">${esc(scanner.display_name || scanner.name)}</div>
+                        <div class="detail">${esc(scanner.ip)}</div>
+                    </div>
+                    <span class="badge badge-${esc(proto)}">${esc(proto.toUpperCase())}</span>`;
+                list.appendChild(li);
+            });
+            document.getElementById('no-scanners').classList.toggle('hidden', scanners.length > 0);
+            if (scanners.length === 1) this.selectScanner(scanners[0], list.firstChild);
         } catch (err) {
+            list.innerHTML = `<div class="alert alert-error">Search failed: ${esc(err.message)}</div>`;
+        } finally {
             loading.classList.add('hidden');
             btn.classList.remove('hidden');
-            list.innerHTML = `<div class="alert alert-error">Discovery failed: ${this.esc(err.message)}</div>`;
         }
     },
 
+    clearPush() {
+        this.pushMode = null;
+        document.querySelectorAll('input[name="push-mode"]').forEach(r => { r.checked = false; });
+    },
+
     selectScanner(scanner, element) {
-        this.selectedScanner = scanner;
-        this.isFolderWatch = false;
-        this.isFtpReceive = false;
-        this.ftpConfig = null;
+        this.scanner = scanner;
+        this.clearPush();
         document.querySelectorAll('.scanner-item').forEach(el => el.classList.remove('selected'));
-        element.classList.add('selected');
-        document.getElementById('btn-step2-next').disabled = false;
+        if (element) element.classList.add('selected');
+        this.updateNext();
     },
 
     async probeManual() {
         const ip = document.getElementById('manual-ip').value.trim();
         const result = document.getElementById('probe-result');
-
         if (!ip) {
             result.innerHTML = '<div class="alert alert-error">Please enter an IP address</div>';
             return;
         }
-
         result.innerHTML = '<div class="loading"><div class="spinner"></div><span>Checking...</span></div>';
-
         try {
-            const resp = await fetch('/api/probe', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ip: ip, port: 80, protocol: 'escl' }),
-            });
-            const data = await resp.json();
-
+            const data = await api.post('api/probe', { ip });
             if (data.found) {
-                this.selectedScanner = data.scanner;
-                this.isFolderWatch = false;
-                result.innerHTML = `<div class="alert alert-success">Found: ${this.esc(data.scanner.display_name || data.scanner.name)}</div>`;
-                document.getElementById('btn-step2-next').disabled = false;
+                this.selectScanner(data.scanner, null);
+                result.innerHTML = `<div class="alert alert-success">Found ${esc(data.scanner.display_name || data.scanner.name)}</div>`;
             } else {
-                result.innerHTML = `<div class="alert alert-warning">${this.esc(data.error || 'No scanner found')}</div>`;
+                result.innerHTML = `<div class="alert alert-warning">${esc(data.error || 'No scanner answered at that address')}</div>`;
             }
         } catch (err) {
-            result.innerHTML = `<div class="alert alert-error">Error: ${this.esc(err.message)}</div>`;
+            result.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
         }
     },
 
-    selectFolderWatch() {
-        const folder = document.getElementById('watch-folder').value.trim();
-        if (!folder) {
-            document.getElementById('watch-folder').style.borderColor = 'var(--error)';
-            return;
-        }
-        document.getElementById('watch-folder').style.borderColor = '';
-
-        this.isFolderWatch = true;
-        this.isFtpReceive = false;
-        this.ftpConfig = null;
-        this.selectedScanner = {
-            name: 'Folder Watcher',
-            ip: folder,
-            port: 0,
-            protocol: 'folder',
-            model: 'Watch: ' + folder,
-            display_name: 'Folder Watcher',
-            sources: ['Platen'],
-        };
-        document.getElementById('btn-step2-next').disabled = false;
-
-        // Clear scanner list selection
+    selectPush(mode) {
+        this.pushMode = mode;
+        this.scanner = null;
         document.querySelectorAll('.scanner-item').forEach(el => el.classList.remove('selected'));
+        this.updateNext();
     },
 
-    selectFtpReceive() {
-        const port = parseInt(document.getElementById('ftp-port').value) || 2121;
-        const username = document.getElementById('ftp-username').value.trim() || 'scan';
-        const password = document.getElementById('ftp-password').value.trim() || 'scan';
+    // --- Step 2 ---
 
-        this.isFtpReceive = true;
-        this.isFolderWatch = false;
-        this.ftpConfig = { port, username, password };
-        this.selectedScanner = {
-            name: 'FTP Receiver',
-            ip: '0.0.0.0',
-            port: port,
-            protocol: 'ftp',
-            model: 'FTP Receiver on port ' + port,
-            display_name: 'FTP Receiver',
-            sources: [],
-        };
-        document.getElementById('btn-step2-next').disabled = false;
-
-        // Clear scanner list selection
-        document.querySelectorAll('.scanner-item').forEach(el => el.classList.remove('selected'));
-    },
-
-    // Step 3: Test connection
-    prepareTestStep() {
-        const info = document.getElementById('test-scanner-info');
-
-        if (this.isFtpReceive) {
-            const ftp = this.ftpConfig;
-            info.innerHTML = `
-                <div class="alert alert-info">FTP Receiver mode - listening on port ${ftp.port}</div>
-                <p class="mt-8" style="font-size: 14px; color: var(--gray-500);">Configure your scanner's <strong>Scan to FTP</strong> with these settings:</p>
-                <div style="padding: 12px; background: var(--gray-50); border-radius: 8px; margin-top: 8px; font-family: monospace; font-size: 14px;">
-                    <div><strong>Server:</strong> (this computer's IP address)</div>
-                    <div><strong>Port:</strong> ${ftp.port}</div>
-                    <div><strong>Username:</strong> ${this.esc(ftp.username)}</div>
-                    <div><strong>Password:</strong> ${this.esc(ftp.password)}</div>
-                    <div><strong>Path:</strong> /</div>
-                </div>
-                <p class="mt-8" style="font-size: 14px; color: var(--gray-500);">No test scan needed. The FTP server will start when you finish the wizard.</p>
-            `;
-            document.getElementById('btn-test-scan').classList.add('hidden');
-            return;
-        }
-
-        if (this.isFolderWatch) {
-            info.innerHTML = `
-                <div class="alert alert-info">Folder watcher mode - watching: ${this.esc(this.selectedScanner.ip)}</div>
-                <p class="mt-8" style="font-size: 14px; color: var(--gray-500);">Folder watchers don't require a test scan. You can proceed to the next step.</p>
-            `;
-            document.getElementById('btn-test-scan').classList.add('hidden');
-            return;
-        }
-
-        const s = this.selectedScanner;
-        info.innerHTML = `
-            <div style="padding: 12px; background: var(--gray-50); border-radius: 8px;">
-                <div style="font-weight: 600; font-size: 16px;">${this.esc(s.display_name || s.name)}</div>
-                <div style="font-size: 13px; color: var(--gray-500); margin-top: 4px;">
-                    ${this.esc(s.ip)}:${s.port} &middot; ${s.protocol.toUpperCase()}
-                </div>
-                <div style="font-size: 13px; color: var(--gray-500); margin-top: 2px;">
-                    Sources: ${(s.sources || ['Platen']).join(', ')}
-                </div>
-            </div>
-        `;
-        document.getElementById('btn-test-scan').classList.remove('hidden');
-    },
-
-    async testScan() {
-        const btn = document.getElementById('btn-test-scan');
-        const loading = document.getElementById('test-loading');
-        const result = document.getElementById('test-result');
-
-        btn.classList.add('hidden');
-        loading.classList.remove('hidden');
-        result.innerHTML = '';
-
-        try {
-            const resp = await fetch('/api/test-scan', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    ip: this.selectedScanner.ip,
-                    port: this.selectedScanner.port,
-                    protocol: this.selectedScanner.protocol,
-                    path: this.selectedScanner.path || '',
-                    source: 'Platen',
-                }),
-            });
-            const data = await resp.json();
-
-            loading.classList.add('hidden');
-            btn.classList.remove('hidden');
-
-            if (data.success) {
-                result.innerHTML = `<div class="alert alert-success">Test scan successful! (${this.esc(data.size_readable)})</div>`;
-            } else {
-                result.innerHTML = `<div class="alert alert-error">Test scan failed: ${this.esc(data.error)}</div>`;
-            }
-        } catch (err) {
-            loading.classList.add('hidden');
-            btn.classList.remove('hidden');
-            result.innerHTML = `<div class="alert alert-error">Error: ${this.esc(err.message)}</div>`;
-        }
-    },
-
-    // Step 5: Paperless
     togglePaperless() {
-        const enabled = document.getElementById('paperless-enabled').checked;
-        const config = document.getElementById('paperless-config');
-        if (enabled) {
-            config.classList.remove('hidden');
-        } else {
-            config.classList.add('hidden');
-        }
+        const on = document.getElementById('paperless-enabled').checked;
+        document.getElementById('paperless-config').classList.toggle('hidden', !on);
     },
 
     togglePaperlessMode() {
@@ -312,130 +180,166 @@ const wizard = {
         const url = document.getElementById('paperless-url').value.trim();
         const token = document.getElementById('paperless-token').value.trim();
         const result = document.getElementById('paperless-test-result');
-
         if (!url) {
-            result.innerHTML = '<div class="alert alert-error">Please enter the Paperless URL</div>';
+            result.innerHTML = '<div class="alert alert-error">Please enter the Paperless-NGX address</div>';
             return;
         }
-
         result.innerHTML = '<div class="loading"><div class="spinner"></div><span>Testing...</span></div>';
-
-        try {
-            const resp = await fetch('/api/test-paperless', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url, token }),
-            });
-            const data = await resp.json();
-
-            if (data.ok) {
-                result.innerHTML = '<div class="alert alert-success">Connected to Paperless-NGX!</div>';
-            } else {
-                result.innerHTML = `<div class="alert alert-error">Connection failed: ${this.esc(data.error)}</div>`;
-            }
-        } catch (err) {
-            result.innerHTML = `<div class="alert alert-error">Error: ${this.esc(err.message)}</div>`;
-        }
+        const data = await api.post('api/test-paperless', { url, token });
+        result.innerHTML = data.ok
+            ? '<div class="alert alert-success">Connected to Paperless-NGX</div>'
+            : `<div class="alert alert-error">Could not connect: ${esc(data.error)}</div>`;
     },
 
-    // Step 6: Summary & Save
-    prepareSummary() {
-        const list = document.getElementById('config-summary');
-        const s = this.selectedScanner || {};
-        const outputFolder = document.getElementById('output-folder').value.trim();
-        const paperlessEnabled = document.getElementById('paperless-enabled').checked;
-
-        let items = [
-            { label: 'Scanner', value: s.display_name || s.name || 'None' },
-            { label: 'Protocol', value: (s.protocol || '').toUpperCase() || 'N/A' },
-        ];
-
-        if (this.isFtpReceive) {
-            items.push({ label: 'FTP Port', value: String(this.ftpConfig.port) });
-            items.push({ label: 'FTP User', value: this.ftpConfig.username });
+    buildConfig() {
+        const s = this.scanner || {};
+        const off = { enabled: false };
+        const body = {
+            output: { folder: document.getElementById('output-folder').value.trim() },
+        };
+        if (this.pushMode === 'ftp') {
+            body.scanner = { ip: '', port: 0, protocol: 'ftp', name: '', model: '', path: '' };
+            body.ftp_receive = { enabled: true };
+            body.folder_watch = off;
+            body.monitor = off;
+        } else if (this.pushMode === 'folder') {
+            body.scanner = { ip: '', port: 0, protocol: 'folder', name: '', model: '', path: '' };
+            body.folder_watch = { enabled: true, watch_folder: document.getElementById('watch-folder').value.trim() };
+            body.ftp_receive = off;
+            body.monitor = off;
         } else {
-            items.push({ label: 'Address', value: s.ip ? `${s.ip}:${s.port}` : 'N/A' });
+            body.scanner = {
+                ip: s.ip || '', port: s.port || 80, protocol: s.protocol || 'escl',
+                name: s.name || '', model: s.model || s.display_name || '', path: s.path || '',
+            };
+            body.monitor = { enabled: document.getElementById('auto-feeder').checked &&
+                                      (s.sources || []).includes('Feeder') };
+            body.ftp_receive = off;
+            body.folder_watch = off;
         }
-
-        items.push({ label: 'Output Folder', value: outputFolder || 'Not set' });
-        items.push({ label: 'Paperless-NGX', value: paperlessEnabled ? 'Enabled' : 'Disabled' });
-
-        if (paperlessEnabled) {
-            const mode = document.getElementById('paperless-mode').value;
-            items.push({ label: 'Paperless Mode', value: mode === 'api' ? 'API Upload' : 'Consume Folder' });
-        }
-
-        list.innerHTML = items.map(i => `
-            <li>
-                <span class="label">${this.esc(i.label)}</span>
-                <span class="value">${this.esc(i.value)}</span>
-            </li>
-        `).join('');
-    },
-
-    async finish() {
-        const s = this.selectedScanner || {};
-        const paperlessEnabled = document.getElementById('paperless-enabled').checked;
-        const paperlessMode = document.getElementById('paperless-mode').value;
-
-        const config = {
-            scanner: {
-                ip: s.ip || '',
-                port: s.port || 80,
-                protocol: s.protocol || 'escl',
-                name: s.name || '',
-                model: s.model || s.display_name || '',
-                path: s.path || '',
-            },
-            output: {
-                folder: document.getElementById('output-folder').value.trim(),
-                filename_pattern: document.getElementById('filename-pattern').value.trim() || 'scan_{date}_{time}_{n}',
-            },
-            paperless: {
-                enabled: paperlessEnabled,
-                mode: paperlessMode,
+        if (document.getElementById('paperless-enabled').checked) {
+            body.paperless = {
+                enabled: true,
+                mode: document.getElementById('paperless-mode').value,
                 consume_folder: document.getElementById('paperless-consume-folder').value.trim(),
                 api_url: document.getElementById('paperless-url').value.trim(),
                 api_token: document.getElementById('paperless-token').value.trim(),
-            },
-            monitor: {
-                enabled: !this.isFolderWatch && (s.sources || []).includes('Feeder'),
-            },
-            folder_watch: {
-                enabled: this.isFolderWatch,
-                watch_folder: this.isFolderWatch ? s.ip : '',
-            },
-            ftp_receive: {
-                enabled: this.isFtpReceive,
-                port: this.ftpConfig ? this.ftpConfig.port : 2121,
-                username: this.ftpConfig ? this.ftpConfig.username : 'scan',
-                password: this.ftpConfig ? this.ftpConfig.password : 'scan',
-            },
-        };
+            };
+        } else {
+            body.paperless = off;
+        }
+        return body;
+    },
 
+    sameFolder(a, b) {
+        const norm = p => String(p || '').trim().replace(/[\\/]+$/, '').toLowerCase();
+        return norm(a) !== '' && norm(a) === norm(b);
+    },
+
+    async save() {
+        const body = this.buildConfig();
+        if (!body.output.folder) {
+            this.showError('step2-error', 'Please choose a folder for your scans.');
+            return;
+        }
+        if (this.pushMode === 'folder' && this.sameFolder(body.output.folder, body.folder_watch.watch_folder)) {
+            this.showError('step2-error', 'The folder your scanner saves into must be different from this folder.');
+            return;
+        }
+        this.showError('step2-error', '');
+        const btn = document.getElementById('btn-save');
+        btn.disabled = true;
         try {
-            const resp = await fetch('/api/save-config', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(config),
-            });
-            const data = await resp.json();
-
-            if (data.saved) {
-                window.location.href = '/dashboard';
-            } else {
-                alert('Failed to save configuration: ' + (data.error || 'Unknown error'));
+            const data = await api.post('api/save-config', body);
+            if (!data.saved) {
+                this.showError('step2-error', data.error || 'Could not save your settings.');
+                return;
             }
+            (data.warnings || []).forEach(w => toast(w, 'warning', 8000));
+            await this.prepareDone(body);
+            this.show(3);
         } catch (err) {
-            alert('Error saving configuration: ' + err.message);
+            this.showError('step2-error', err.message);
+        } finally {
+            btn.disabled = false;
         }
     },
 
-    // Escape HTML to prevent XSS
-    esc(str) {
-        if (str == null) return '';
-        const div = document.createElement('div');
-        div.textContent = String(str);
-        return div.innerHTML;
+    // --- Step 3 ---
+
+    async prepareDone(body) {
+        try { this.secrets = await api.get('api/secrets'); } catch (e) { this.secrets = {}; }
+        const items = [];
+        if (this.pushMode === 'ftp') items.push(['Scanner', 'Sends files by FTP']);
+        else if (this.pushMode === 'folder') items.push(['Scanner', `Saves into ${body.folder_watch.watch_folder}`]);
+        else items.push(['Scanner', (this.scanner.display_name || this.scanner.name || this.scanner.ip)]);
+        if (body.monitor && body.monitor.enabled) items.push(['Feeder', 'Scans automatically when paper is loaded']);
+        items.push(['Scans go to', body.output.folder]);
+        items.push(['Paperless-NGX', body.paperless.enabled ? 'Also sends there' : 'Not used']);
+        document.getElementById('config-summary').innerHTML = items.map(([k, v]) =>
+            `<li><span class="label">${esc(k)}</span><span class="value">${esc(v)}</span></li>`).join('');
+
+        document.getElementById('test-scan-block').classList.toggle('hidden', !!this.pushMode);
+        document.getElementById('ftp-block').classList.toggle('hidden', this.pushMode !== 'ftp');
+        if (this.pushMode === 'ftp') {
+            const cfg = await api.get('api/config');
+            const ftp = cfg.ftp_receive || {};
+            const rows = [
+                ['Server', this.defaults.lan_ip || "this computer's IP address"],
+                ['Port', ftp.port],
+                ['User name', ftp.username],
+                ['Password', this.secrets.ftp_password || ''],
+                ['Folder', '/'],
+            ];
+            document.getElementById('ftp-summary').innerHTML = rows.map(([k, v]) =>
+                `<li><span class="label">${esc(k)}</span><span class="value mono">${esc(v)}</span></li>`).join('');
+        }
+        document.getElementById('lan-token').textContent = this.secrets.api_token || '';
+        this.toggleLan();
+    },
+
+    toggleLan() {
+        document.getElementById('lan-info').classList.toggle('hidden', !document.getElementById('allow-lan').checked);
+    },
+
+    copyToken() { copyText(this.secrets.api_token || ''); },
+
+    async testScan() {
+        const btn = document.getElementById('btn-test-scan');
+        const loading = document.getElementById('test-loading');
+        const result = document.getElementById('test-result');
+        btn.classList.add('hidden');
+        loading.classList.remove('hidden');
+        result.innerHTML = '';
+        try {
+            const data = await api.post('api/scan', { source: 'flatbed' });
+            let cls = 'alert-error';
+            let text = data.message || data.error || 'Scan failed';
+            if (data._status === 409) { cls = 'alert-warning'; text = 'The scanner is busy. Try again in a moment.'; }
+            else if (data.success) {
+                cls = 'alert-success';
+                text = `It works. Saved to ${(data.saved_paths || [])[0] || data.filename}`;
+            } else if (data.queued) { cls = 'alert-warning'; }
+            result.innerHTML = `<div class="alert ${cls}">${esc(text)}</div>`;
+        } catch (err) {
+            result.innerHTML = `<div class="alert alert-error">${esc(err.message)}</div>`;
+        } finally {
+            loading.classList.add('hidden');
+            btn.classList.remove('hidden');
+        }
+    },
+
+    async finish() {
+        const lan = document.getElementById('allow-lan').checked;
+        if (lan !== this.lanInitially) {
+            const data = await api.post('api/settings', { web: { bind: lan ? '0.0.0.0' : '127.0.0.1' } });
+            if (!data.saved) {
+                toast(data.error || 'Could not save the network setting', 'error');
+                return;
+            }
+        }
+        window.location.href = 'dashboard';
     },
 };
+
+document.addEventListener('DOMContentLoaded', () => wizard.init());
