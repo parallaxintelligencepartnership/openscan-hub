@@ -217,7 +217,7 @@ def _save_pdf(pdf_data: bytes, filename: str) -> dict:
         paperless_consume=config.paperless.consume_folder if config.paperless.enabled and config.paperless.mode == "consume" else None,
         paperless_api_url=config.paperless.api_url if config.paperless.enabled and config.paperless.mode == "api" else None,
         paperless_api_token=config.paperless.api_token if config.paperless.enabled and config.paperless.mode == "api" else None,
-        paperless_tags=config.paperless.default_tags if config.paperless.enabled else None,
+        paperless_tags=config.paperless.tags if config.paperless.enabled else None,
     )
 
 

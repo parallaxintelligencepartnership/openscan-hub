@@ -16,6 +16,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from .base import (
+    to_protocol_color_mode,
     AdfState,
     ScannerCapabilities,
     ScannerInfo,
@@ -550,9 +551,7 @@ class WsdScanner(ScannerProtocol):
         # spec-optional but sane-airscan notes Canon devices reject the
         # job with the same InvalidArgs fault without it.
         input_source = "ADF" if settings.source == ScanSource.ADF else "Platen"
-        color_mode = "RGB24"
-        if settings.color_mode == "Grayscale8":
-            color_mode = "Grayscale8"
+        color_mode = to_protocol_color_mode(settings.color_mode)
 
         # Many devices (e.g. Canon G-series) advertise
         # DocumentSizeAutoDetectSupported=false and reject a job that asks

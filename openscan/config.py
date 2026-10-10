@@ -4,8 +4,10 @@ import json
 import logging
 import os
 import platform
+import secrets
 import sys
-from dataclasses import asdict, dataclass, field
+import tempfile
+from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -35,7 +37,10 @@ class PaperlessConfig:
     consume_folder: str = ""
     api_url: str = ""
     api_token: str = ""
-    default_tags: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    correspondent: str = ""
+    document_type: str = ""
+    keep_local_copy: bool = True
 
 
 @dataclass
@@ -58,9 +63,33 @@ class FtpReceiveConfig:
     enabled: bool = False
     port: int = 2121
     username: str = "scan"
-    password: str = "scan"
+    password: str = ""  # generated on first load if empty
+    allow_anonymous: bool = False
     staging_dir: str = ""  # Temp dir for incoming files; auto-set if empty
     delete_after_routing: bool = True
+    passive_ports: str = "60000-60010"
+
+
+@dataclass
+class WebConfig:
+    bind: str = "127.0.0.1"  # "0.0.0.0" for LAN access
+    port: int = 8020
+    api_token: str = ""  # generated on first load
+    advertise_mdns: bool = True
+
+
+@dataclass
+class ScanDefaults:
+    resolution: int = 300
+    color_mode: str = "color"  # color | gray | bw
+    page_size: str = "auto"  # auto | letter | a4 | legal
+    duplex: bool = False
+    remove_blank_pages: bool = False
+
+
+@dataclass
+class HomeAssistantConfig:
+    enabled: bool = False
 
 
 @dataclass
@@ -72,8 +101,18 @@ class AppConfig:
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
     folder_watch: FolderWatchConfig = field(default_factory=FolderWatchConfig)
     ftp_receive: FtpReceiveConfig = field(default_factory=FtpReceiveConfig)
-    web_port: int = 8020
+    web: WebConfig = field(default_factory=WebConfig)
+    scan: ScanDefaults = field(default_factory=ScanDefaults)
+    homeassistant: HomeAssistantConfig = field(default_factory=HomeAssistantConfig)
     log_level: str = "INFO"
+
+    @property
+    def web_port(self) -> int:
+        return self.web.port
+
+    @web_port.setter
+    def web_port(self, value: int) -> None:
+        self.web.port = value
 
 
 def get_config_dir() -> Path:
@@ -113,91 +152,139 @@ def _is_frozen() -> bool:
 
 
 def load_config(path: Optional[Path] = None) -> AppConfig:
-    """Load config from JSON file, returning defaults if not found."""
+    """Load config from JSON file, returning defaults if not found or broken."""
     config_path = path or get_config_path()
+    config = None
     if config_path.exists():
         try:
             data = json.loads(config_path.read_text(encoding="utf-8"))
-            return _dict_to_config(data)
-        except (json.JSONDecodeError, KeyError) as e:
+            config = _dict_to_config(data)
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError, AttributeError) as e:
             logger.warning("Failed to load config from %s: %s", config_path, e)
-    return AppConfig()
+    if config is None:
+        config = AppConfig()
+
+    generated = False
+    if not config.web.api_token:
+        config.web.api_token = secrets.token_hex(16)
+        generated = True
+    if config.ftp_receive.password in ("", "scan"):
+        config.ftp_receive.password = secrets.token_urlsafe(12)
+        generated = True
+    if generated:
+        try:
+            save_config(config, config_path)
+        except OSError as e:
+            logger.warning("Could not persist generated secrets to %s: %s", config_path, e)
+
+    # Environment overrides (not persisted)
+    if os.environ.get("OPENSCAN_BIND"):
+        config.web.bind = os.environ["OPENSCAN_BIND"]
+    if os.environ.get("OPENSCAN_PORT"):
+        try:
+            config.web.port = int(os.environ["OPENSCAN_PORT"])
+        except ValueError:
+            logger.warning("Ignoring invalid OPENSCAN_PORT=%r", os.environ["OPENSCAN_PORT"])
+    if os.environ.get("OPENSCAN_TOKEN"):
+        config.web.api_token = os.environ["OPENSCAN_TOKEN"]
+    return config
 
 
 def save_config(config: AppConfig, path: Optional[Path] = None) -> None:
-    """Save config to JSON file."""
+    """Save config to JSON file atomically, readable only by the owner."""
     config_path = path or get_config_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
     data = asdict(config)
-    config_path.write_text(
-        json.dumps(data, indent=2),
-        encoding="utf-8",
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(config_path.parent), prefix=config_path.name + ".", suffix=".tmp"
     )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(data, indent=2))
+            f.flush()
+            os.fsync(f.fileno())
+        if os.name == "posix":
+            os.chmod(tmp_name, 0o600)
+        os.replace(tmp_name, config_path)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
     logger.info("Config saved to %s", config_path)
 
 
+def _section(cls, raw, name: str):
+    """Build dataclass `cls` from dict `raw`, ignoring unknown keys and
+    falling back to the default for any value of the wrong type."""
+    obj = cls()
+    if raw is None:
+        return obj
+    if not isinstance(raw, dict):
+        logger.warning("Config section %r should be an object; using defaults", name)
+        return obj
+    known = {f.name for f in fields(cls)}
+    for key, value in raw.items():
+        if key not in known:
+            logger.warning("Ignoring unknown config key %s.%s", name, key)
+            continue
+        default = getattr(obj, key)
+        if isinstance(default, bool):
+            ok = isinstance(value, bool)
+        elif isinstance(default, int):
+            ok = isinstance(value, int) and not isinstance(value, bool)
+        elif isinstance(default, float):
+            ok = isinstance(value, (int, float)) and not isinstance(value, bool)
+        elif isinstance(default, str):
+            ok = isinstance(value, str)
+        elif isinstance(default, list):
+            ok = isinstance(value, list) and all(isinstance(v, str) for v in value)
+        else:
+            ok = True
+        if not ok:
+            logger.warning("Config key %s.%s has wrong type; using default", name, key)
+            continue
+        if isinstance(default, float):
+            value = float(value)
+        setattr(obj, key, value)
+    return obj
+
+
 def _dict_to_config(data: dict) -> AppConfig:
-    """Reconstruct AppConfig from a dict, handling missing keys gracefully."""
+    """Reconstruct AppConfig from a dict, tolerating unknown keys and bad types."""
+    if not isinstance(data, dict):
+        raise TypeError("config root must be an object")
     config = AppConfig()
-    config.wizard_completed = data.get("wizard_completed", False)
-    config.web_port = data.get("web_port", 8020)
-    config.log_level = data.get("log_level", "INFO")
+    if isinstance(data.get("wizard_completed"), bool):
+        config.wizard_completed = data["wizard_completed"]
+    if isinstance(data.get("log_level"), str):
+        config.log_level = data["log_level"]
 
-    if "scanner" in data:
-        s = data["scanner"]
-        config.scanner = ScannerConfig(
-            ip=s.get("ip", ""),
-            port=s.get("port", 0),
-            protocol=s.get("protocol", "escl"),
-            name=s.get("name", ""),
-            model=s.get("model", ""),
-            path=s.get("path", ""),
-        )
+    sections = {
+        "scanner": ScannerConfig,
+        "output": OutputConfig,
+        "paperless": PaperlessConfig,
+        "monitor": MonitorConfig,
+        "folder_watch": FolderWatchConfig,
+        "ftp_receive": FtpReceiveConfig,
+        "web": WebConfig,
+        "scan": ScanDefaults,
+        "homeassistant": HomeAssistantConfig,
+    }
+    for name, cls in sections.items():
+        raw = data.get(name)
+        if name == "paperless" and isinstance(raw, dict):
+            raw = dict(raw)
+            if "default_tags" in raw:
+                raw.setdefault("tags", raw["default_tags"])
+                del raw["default_tags"]
+        setattr(config, name, _section(cls, raw, name))
 
-    if "output" in data:
-        o = data["output"]
-        config.output = OutputConfig(
-            folder=o.get("folder", ""),
-            filename_pattern=o.get("filename_pattern", "scan_{date}_{time}_{n}"),
-        )
-
-    if "paperless" in data:
-        p = data["paperless"]
-        config.paperless = PaperlessConfig(
-            enabled=p.get("enabled", False),
-            mode=p.get("mode", "consume"),
-            consume_folder=p.get("consume_folder", ""),
-            api_url=p.get("api_url", ""),
-            api_token=p.get("api_token", ""),
-            default_tags=p.get("default_tags", []),
-        )
-
-    if "monitor" in data:
-        m = data["monitor"]
-        config.monitor = MonitorConfig(
-            enabled=m.get("enabled", False),
-            poll_interval=m.get("poll_interval", 3.0),
-            settle_time=m.get("settle_time", 1.0),
-        )
-
-    if "folder_watch" in data:
-        f = data["folder_watch"]
-        config.folder_watch = FolderWatchConfig(
-            enabled=f.get("enabled", False),
-            watch_folder=f.get("watch_folder", ""),
-            extensions=f.get("extensions", [".pdf", ".jpg", ".jpeg", ".png", ".tiff", ".tif"]),
-            poll_interval=f.get("poll_interval", 5.0),
-        )
-
-    if "ftp_receive" in data:
-        ft = data["ftp_receive"]
-        config.ftp_receive = FtpReceiveConfig(
-            enabled=ft.get("enabled", False),
-            port=ft.get("port", 2121),
-            username=ft.get("username", "scan"),
-            password=ft.get("password", "scan"),
-            staging_dir=ft.get("staging_dir", ""),
-            delete_after_routing=ft.get("delete_after_routing", True),
-        )
+    # Migrate old top-level web_port
+    old_port = data.get("web_port")
+    if isinstance(old_port, int) and not isinstance(old_port, bool):
+        if not (isinstance(data.get("web"), dict) and "port" in data["web"]):
+            config.web.port = old_port
 
     return config

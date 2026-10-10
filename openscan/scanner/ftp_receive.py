@@ -202,7 +202,7 @@ def _process_received_file(config: AppConfig, file_path: Path) -> None:
                 else None
             ),
             paperless_tags=(
-                config.paperless.default_tags
+                config.paperless.tags
                 if config.paperless.enabled
                 else None
             ),

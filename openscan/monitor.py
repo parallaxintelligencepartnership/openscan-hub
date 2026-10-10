@@ -132,7 +132,7 @@ def _auto_scan(config: AppConfig, scanner_info: ScannerInfo, scanner_impl) -> No
                 else None
             ),
             paperless_tags=(
-                config.paperless.default_tags
+                config.paperless.tags
                 if config.paperless.enabled
                 else None
             ),

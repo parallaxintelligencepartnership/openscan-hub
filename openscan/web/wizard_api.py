@@ -189,7 +189,7 @@ def api_save_config(handler, query):
         consume_folder=paperless_data.get("consume_folder", ""),
         api_url=paperless_data.get("api_url", ""),
         api_token=paperless_data.get("api_token", ""),
-        default_tags=paperless_data.get("default_tags", []),
+        tags=paperless_data.get("tags", paperless_data.get("default_tags", [])),
     )
 
     # Monitor

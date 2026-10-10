@@ -189,7 +189,7 @@ def _process_file(config: AppConfig, file_path: Path) -> None:
             config.paperless.api_url,
             config.paperless.api_token,
             filename,
-            config.paperless.default_tags,
+            config.paperless.tags,
         )
 
     logger.info("Processed: %s (%d bytes)", filename, len(data))

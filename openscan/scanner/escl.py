@@ -12,6 +12,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from .base import (
+    to_protocol_color_mode,
     AdfState,
     ScannerCapabilities,
     ScannerInfo,
@@ -229,7 +230,7 @@ class EsclScanner(ScannerProtocol):
         </pwg:ScanRegion>
     </pwg:ScanRegions>
     <scan:InputSource>{input_source}</scan:InputSource>
-    <scan:ColorMode>{settings.color_mode}</scan:ColorMode>
+    <scan:ColorMode>{to_protocol_color_mode(settings.color_mode)}</scan:ColorMode>
     <scan:XResolution>{settings.resolution}</scan:XResolution>
     <scan:YResolution>{settings.resolution}</scan:YResolution>
     <pwg:DocumentFormat>{settings.format}</pwg:DocumentFormat>
