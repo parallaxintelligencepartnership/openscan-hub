@@ -2,7 +2,6 @@
 
 import logging
 import platform
-import socket
 from pathlib import Path
 
 from ..config import _is_docker
@@ -28,12 +27,8 @@ def default_output_folder() -> str:
 
 
 def lan_ip() -> str:
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("192.0.2.1", 9))  # chooses the outgoing interface; sends nothing
-            return s.getsockname()[0]
-    except OSError:
-        return ""
+    from ..scanner.ftp_receive import primary_ipv4
+    return primary_ipv4()
 
 
 def _int(value, default: int) -> int:
@@ -73,7 +68,13 @@ def api_defaults(handler, query):
         "platform": platform.system(),
         "is_docker": _is_docker(),
         "lan_ip": lan_ip(),
+        "ftp_address": _ftp_address(cfg),
     })
+
+
+def _ftp_address(cfg) -> str:
+    from ..scanner.ftp_receive import passive_address
+    return passive_address(cfg)
 
 
 @route("POST", "/api/discover")

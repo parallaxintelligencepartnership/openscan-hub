@@ -153,9 +153,15 @@ then enter these on the scanner:
 The FTP receiver only accepts uploads: nobody can download or delete files
 through it, and anonymous login is off. Because the scanner has to reach it,
 it listens on your whole network while it is turned on, and FTP itself is not
-encrypted. Leave it off if you do not need it. With Docker, uncomment the FTP
-ports in `docker-compose.yml`, or better, use `network_mode: host` so the
-scanner can open the passive data ports (60000 to 60010).
+encrypted. Leave it off if you do not need it. Settings shows the address the
+scanner should use ("Scanner connects to ftp://192.168.1.20:2121").
+
+With Docker, the simplest setup is `network_mode: host`. In the default bridge
+mode, uncomment the FTP ports in `docker-compose.yml` **and** set
+`OPENSCAN_FTP_PASSIVE_ADDRESS` to the LAN address of the machine running
+Docker (for example `192.168.1.20`). Without it, the container tells the
+scanner to send data to its internal Docker address, and every upload fails
+after the login.
 
 **Folder watch** for scanners that save to a network folder by themselves.
 OpenScanHub picks up new files from that folder and sends them to your scans
@@ -226,8 +232,9 @@ Settings are stored in `openscan.json`:
 | Docker | `/config` |
 
 Set `OPENSCAN_CONFIG_DIR` to use a different folder. `OPENSCAN_BIND`,
-`OPENSCAN_PORT` and `OPENSCAN_TOKEN` override the listen address, port and
-access token without changing the file. If other devices reach OpenScanHub by
+`OPENSCAN_PORT`, `OPENSCAN_TOKEN` and `OPENSCAN_FTP_PASSIVE_ADDRESS` override the
+listen address, port, access token and FTP address for the scanner without
+changing the file. If other devices reach OpenScanHub by
 a plain host name (not an IP address or a `.local` name), list it in
 `OPENSCAN_ALLOWED_HOSTS`, for example `OPENSCAN_ALLOWED_HOSTS=nas,nas.lan`.
 

@@ -285,12 +285,14 @@ const wizard = {
             const cfg = await api.get('api/config');
             const ftp = cfg.ftp_receive || {};
             const rows = [
-                ['Server', this.defaults.lan_ip || "this computer's IP address"],
+                ['Server', this.defaults.ftp_address || this.defaults.lan_ip || "this computer's IP address"],
                 ['Port', ftp.port],
                 ['User name', ftp.username],
                 ['Password', this.secrets.ftp_password || ''],
                 ['Folder', '/'],
             ];
+            document.getElementById('ftp-connects').textContent =
+                ftpConnectsText(this.defaults.ftp_address, ftp.port);
             document.getElementById('ftp-summary').innerHTML = rows.map(([k, v]) =>
                 `<li><span class="label">${esc(k)}</span><span class="value mono">${esc(v)}</span></li>`).join('');
         }

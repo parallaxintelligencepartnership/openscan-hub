@@ -12,6 +12,9 @@ services:
       - "8020:8020"
       # FTP receiver ("Scan to FTP" on the scanner): turn it on in Settings,
       # then uncomment the next two lines. Anyone on your network can reach them.
+      # In this (bridge) mode you must also set OPENSCAN_FTP_PASSIVE_ADDRESS
+      # below to this machine's LAN address, or uploads fail. Host networking
+      # (network_mode: host, at the bottom) needs neither.
       # - "2121:2121"
       # - "60000-60010:60000-60010"
     volumes:
@@ -21,6 +24,9 @@ services:
       # Your time zone, used for the date and time in scan file names,
       # for example America/New_York or America/Los_Angeles.
       - TZ=Etc/UTC
+      # Bridge mode with the FTP receiver: the address the scanner uses to
+      # reach this machine, for example 192.168.1.20.
+      # - OPENSCAN_FTP_PASSIVE_ADDRESS=192.168.1.20
 
     # Automatic scanner discovery uses mDNS, which needs the host network.
     # If you would rather pick the scanner by IP address, leave this as is.

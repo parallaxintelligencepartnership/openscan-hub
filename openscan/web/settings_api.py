@@ -110,6 +110,13 @@ def _validate(cfg: AppConfig) -> None:
             ipaddress.ip_address(bind)
         except ValueError:
             raise BadRequest("Network access setting is not a valid address")
+    passive = (cfg.ftp_receive.passive_address or "").strip()
+    if passive:
+        try:
+            ipaddress.IPv4Address(passive)
+        except ValueError:
+            raise BadRequest("The FTP address for the scanner must be an IPv4 address, "
+                             "for example 192.168.1.20")
 
 
 def merge_config(current: AppConfig, body: dict) -> AppConfig:

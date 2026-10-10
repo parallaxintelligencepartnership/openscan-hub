@@ -9,9 +9,11 @@ scanner's Scan-to-FTP settings at OpenScanHub's IP on port 2121.
 """
 
 import errno
+import ipaddress
 import logging
 import os
 import re
+import socket
 import threading
 import unicodedata
 from datetime import datetime
@@ -117,6 +119,44 @@ def parse_passive_ports(spec: str) -> Optional[range]:
     return range(lo, hi + 1)
 
 
+def primary_ipv4() -> str:
+    """This computer's main outgoing IPv4 address ("" if there is none).
+
+    Connecting a UDP socket picks the outgoing interface without sending
+    any packet; 192.0.2.1 is a documentation address."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("192.0.2.1", 9))
+            return s.getsockname()[0]
+    except OSError:
+        return ""
+
+
+def _ipv4(value: str) -> bool:
+    try:
+        ipaddress.IPv4Address(value)
+        return True
+    except ValueError:
+        return False
+
+
+def passive_address(config: AppConfig, bind: str = "0.0.0.0") -> str:
+    """The address the scanner connects to for passive-mode data.
+
+    The configured ftp_receive.passive_address (or OPENSCAN_FTP_PASSIVE_ADDRESS)
+    wins. A receiver bound to one specific address uses that address (its
+    data sockets only exist there). Otherwise this computer's main IPv4
+    address. "" means let pyftpdlib decide."""
+    configured = (config.ftp_receive.passive_address or "").strip()
+    if configured:
+        if _ipv4(configured):
+            return configured
+        logger.warning("Ignoring FTP passive address %r: it must be an IPv4 address", configured)
+    if bind and bind != "0.0.0.0" and _ipv4(bind):
+        return bind
+    return primary_ipv4()
+
+
 def ftp_receiver_running() -> bool:
     return bool(_ftp_thread and _ftp_thread.is_alive())
 
@@ -190,6 +230,9 @@ def _build_server(config: AppConfig, host: str = "0.0.0.0"):
     ScanFTPHandler.passive_ports = passive
     ScanFTPHandler.banner = "OpenScanHub FTP receiver ready."
     ScanFTPHandler.permit_foreign_addresses = False
+    masquerade = passive_address(config, host)
+    if masquerade:
+        ScanFTPHandler.masquerade_address = masquerade
 
     server = FTPServer((host, fc.port), ScanFTPHandler)
     server.max_cons = 10

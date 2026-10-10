@@ -179,3 +179,36 @@ def test_parse_passive_ports():
     assert parse_passive_ports("60000-60010") == range(60000, 60011)
     assert parse_passive_ports("bad") is None
     assert parse_passive_ports("10-20") is None
+
+
+def test_passive_reply_uses_the_configured_address(server):
+    # In Docker bridge mode the container IP is useless to the scanner; the
+    # PASV reply must carry the address the scanner can reach.
+    _, port = server(passive_address="192.0.2.77")
+    ftp = connect(port)
+    try:
+        reply = ftp.sendcmd("PASV")
+    finally:
+        ftp.close()
+    assert "(192,0,2,77," in reply
+
+
+def test_passive_address_auto_and_fallback(monkeypatch):
+    cfg = AppConfig()
+    cfg.ftp_receive.passive_address = "198.51.100.4"
+    assert ftp_receive.passive_address(cfg, "0.0.0.0") == "198.51.100.4"
+    cfg.ftp_receive.passive_address = ""
+    monkeypatch.setattr(ftp_receive, "primary_ipv4", lambda: "192.168.1.20")
+    assert ftp_receive.passive_address(cfg, "0.0.0.0") == "192.168.1.20"
+    # Bound to one address: data connections can only go there.
+    assert ftp_receive.passive_address(cfg, "10.0.0.5") == "10.0.0.5"
+    monkeypatch.setattr(ftp_receive, "primary_ipv4", lambda: "")
+    assert ftp_receive.passive_address(cfg, "0.0.0.0") == ""
+    cfg.ftp_receive.passive_address = "nas.lan"  # not an IPv4 address: ignored
+    assert ftp_receive.passive_address(cfg, "0.0.0.0") == ""
+
+
+def test_passive_address_env_override(tmp_path, monkeypatch):
+    from openscan.config import load_config
+    monkeypatch.setenv("OPENSCAN_FTP_PASSIVE_ADDRESS", "192.168.1.9")
+    assert load_config(tmp_path / "c.json").ftp_receive.passive_address == "192.168.1.9"

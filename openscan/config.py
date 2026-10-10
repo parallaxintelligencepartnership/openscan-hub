@@ -68,6 +68,9 @@ class FtpReceiveConfig:
     staging_dir: str = ""  # Temp dir for incoming files; auto-set if empty
     delete_after_routing: bool = True
     passive_ports: str = "60000-60010"
+    # Address put in passive-mode replies ("" = this computer's main IPv4
+    # address). Docker bridge mode needs the host's LAN address here.
+    passive_address: str = ""
 
 
 @dataclass
@@ -189,6 +192,8 @@ def load_config(path: Optional[Path] = None) -> AppConfig:
             logger.warning("Ignoring invalid OPENSCAN_PORT=%r", os.environ["OPENSCAN_PORT"])
     if os.environ.get("OPENSCAN_TOKEN"):
         config.web.api_token = os.environ["OPENSCAN_TOKEN"]
+    if os.environ.get("OPENSCAN_FTP_PASSIVE_ADDRESS"):
+        config.ftp_receive.passive_address = os.environ["OPENSCAN_FTP_PASSIVE_ADDRESS"].strip()
     return config
 
 

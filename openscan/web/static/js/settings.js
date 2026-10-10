@@ -52,7 +52,8 @@ const settings = {
 
         const f = c.ftp_receive;
         $('ftp-enabled').checked = !!f.enabled;
-        $('ftp-server').textContent = this.defaults.lan_ip || "this computer's IP address";
+        $('ftp-server').textContent = this.defaults.ftp_address || this.defaults.lan_ip || "this computer's IP address";
+        $('ftp-connects').textContent = ftpConnectsText(this.defaults.ftp_address, f.port);
         $('ftp-port').value = f.port;
         $('ftp-username').value = f.username;
         $('ftp-password').value = (this.secrets && this.secrets.ftp_password) || '';

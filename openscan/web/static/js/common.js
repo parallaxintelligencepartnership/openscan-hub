@@ -91,3 +91,9 @@ function showWarnings(elementId, warnings) {
     box.innerHTML = list.map(w => `<div>${esc(w)}</div>`).join('');
     box.classList.toggle('hidden', list.length === 0);
 }
+
+// "Scanner connects to ftp://192.168.1.20:2121" for the FTP receiver.
+function ftpConnectsText(address, port) {
+    if (!address) return "Scanner connects to this computer's IP address, port " + port + '.';
+    return `Scanner connects to ftp://${address}:${port}`;
+}

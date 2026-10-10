@@ -184,3 +184,9 @@ def test_service_that_cannot_start_is_a_save_warning(live_server, app_config, fa
     }, token=TOKEN)
     assert r.status == 200, r.body
     assert msg in r.json()["warnings"]
+
+
+def test_defaults_show_the_ftp_address(live_server, app_config):
+    app_config.ftp_receive.passive_address = "192.168.1.9"
+    data = live_server.get("/api/defaults", token=TOKEN).json()
+    assert data["ftp_address"] == "192.168.1.9"
