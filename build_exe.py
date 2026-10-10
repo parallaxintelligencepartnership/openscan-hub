@@ -1,14 +1,21 @@
-"""PyInstaller build script for OpenScanHub Windows EXE."""
+"""PyInstaller build script for the OpenScanHub Windows EXE.
+
+Install the pinned dependencies first so the build is reproducible:
+    pip install --require-hashes -r requirements.lock
+    pip install --no-deps -e .
+    python build_exe.py
+"""
 
 import os
 import sys
 from pathlib import Path
 
+
 def build():
     try:
         import PyInstaller.__main__
     except ImportError:
-        print("ERROR: PyInstaller not installed. Run: pip install pyinstaller")
+        print("ERROR: PyInstaller not installed. Run: pip install --require-hashes -r requirements.lock")
         sys.exit(1)
 
     root = Path(__file__).parent
@@ -20,28 +27,20 @@ def build():
         "--name", "OpenScanHub",
         "--onefile",
         "--windowed",
+        "--noconfirm",
         "--add-data", f"{static_dir}{os.pathsep}openscan/web/static",
-        "--hidden-import", "openscan",
-        "--hidden-import", "openscan.main",
-        "--hidden-import", "openscan.config",
-        "--hidden-import", "openscan.discovery",
-        "--hidden-import", "openscan.output",
-        "--hidden-import", "openscan.monitor",
-        "--hidden-import", "openscan.tray",
-        "--hidden-import", "openscan.scanner.escl",
-        "--hidden-import", "openscan.scanner.wsd",
-        "--hidden-import", "openscan.scanner.folder_watch",
-        "--hidden-import", "openscan.scanner.ftp_receive",
-        "--hidden-import", "pyftpdlib",
+        "--add-data", f"{root / 'LICENSE'}{os.pathsep}.",
+        "--add-data", f"{root / 'THIRD_PARTY_NOTICES.md'}{os.pathsep}.",
+        # Every openscan module, including ones imported lazily.
+        "--collect-submodules", "openscan",
         "--hidden-import", "pyftpdlib.authorizers",
         "--hidden-import", "pyftpdlib.handlers",
         "--hidden-import", "pyftpdlib.servers",
-        "--hidden-import", "openscan.web.server",
-        "--hidden-import", "openscan.web.wizard_api",
-        "--hidden-import", "openscan.web.dashboard_api",
         "--hidden-import", "zeroconf",
         "--hidden-import", "pystray",
         "--hidden-import", "PIL",
+        "--hidden-import", "pypdfium2",
+        "--collect-binaries", "pypdfium2_raw",
         "--distpath", str(root / "dist"),
         "--workpath", str(root / "build"),
         "--specpath", str(root / "build"),

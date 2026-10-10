@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openscan-hub"
-version = "0.1.0"
-description = "Universal network scanner to Paperless-NGX bridge"
+version = "0.3.0"
+description = "Network scanner bridge: put paper on the scanner and it lands in a folder, a NAS share or Paperless-NGX"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
@@ -22,13 +22,14 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Multimedia :: Graphics :: Capture :: Scanners",
 ]
 dependencies = [
     "zeroconf>=0.80.0",
     "pyftpdlib>=2.0.0",
     "pypdf>=4.0.0",
-    "PyMuPDF>=1.24.0",
+    "pypdfium2>=4.30,<5",
     "Pillow>=10.0.0",
 ]
 
