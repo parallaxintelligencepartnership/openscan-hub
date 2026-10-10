@@ -15,8 +15,11 @@ from typing import Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from ..pages import combine_pages, finish_scan
 from .base import (
-    to_protocol_color_mode,
+    nearest_resolution,
+    pick_color_mode,
+    scan_region,
     AdfState,
     ScannerCapabilities,
     ScannerInfo,
@@ -42,23 +45,36 @@ WSD_MULTICAST = "239.255.255.250"
 WSD_PORT = 3702
 WSD_SCAN_TYPE = "http://schemas.microsoft.com/windows/2006/08/wdp/scan:ScanDeviceType"
 
-# WSD Format tokens (not MIME types) in order of preference.
-_FORMAT_PREFERENCE = ["pdf-a", "png", "tiff", "jfif", "jpeg", "exif", "dib"]
+SCAN_ACTION = "http://schemas.microsoft.com/windows/2006/08/wdp/scan/"
+
+# WS-Scan Format tokens (not MIME types) we can turn into a PDF, in order
+# of preference.
+_FORMAT_PREFERENCE = [
+    "pdf-a", "jfif", "exif", "png",
+    "tiff-single-uncompressed", "tiff-single-g4", "tiff-single-g3mh",
+    "tiff-single-jpeg-tn2", "tiff-multi-uncompressed", "tiff-multi-g4",
+    "dib",
+]
 _DEFAULT_FORMAT = "jfif"
+# Faults that mean "no more images in this job".
+_END_OF_JOB_FAULTS = ("NoImagesAvailable", "JobIdNotFound", "JobNotFound")
 
 
-class WsdScanner(ScannerProtocol):
-    """WSD (Web Services for Devices) scanner protocol."""
+class WsdFault(RuntimeError):
+    """A SOAP fault from the device. `subcode` is e.g. ClientErrorNoImagesAvailable."""
 
-    def discover(self, timeout: float = 5.0) -> list[ScannerInfo]:
-        """Discover WSD scanners via WS-Discovery multicast probe."""
-        scanners = []
-        message_id = f"urn:uuid:{uuid.uuid4()}"
+    def __init__(self, message: str, subcode: str = ""):
+        super().__init__(message)
+        self.subcode = subcode
 
-        probe_xml = f"""<?xml version="1.0" encoding="utf-8"?>
+
+def build_probe(message_id: str) -> str:
+    """WS-Discovery Probe for scan devices."""
+    return f"""<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"
     xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing"
-    xmlns:d="http://schemas.xmlsoap.org/ws/2005/04/discovery">
+    xmlns:d="http://schemas.xmlsoap.org/ws/2005/04/discovery"
+    xmlns:wscn="http://schemas.microsoft.com/windows/2006/08/wdp/scan">
     <s:Header>
         <a:Action>http://schemas.xmlsoap.org/ws/2005/04/discovery/Probe</a:Action>
         <a:MessageID>{message_id}</a:MessageID>
@@ -71,6 +87,25 @@ class WsdScanner(ScannerProtocol):
     </s:Body>
 </s:Envelope>"""
 
+
+class WsdScanner(ScannerProtocol):
+    """WSD (Web Services for Devices) scanner protocol."""
+
+    # Timing knobs (seconds). Tests shrink these.
+    http_timeout = 30.0
+    retrieve_timeout = 60.0  # RetrieveImage may block while a page is scanned
+    retry_delay = 1.0
+    first_image_attempts = 5
+    max_pages = 500
+
+    def discover(self, timeout: float = 5.0) -> list[ScannerInfo]:
+        """Discover WSD scanners via WS-Discovery multicast probe."""
+        scanners = []
+        message_id = f"urn:uuid:{uuid.uuid4()}"
+
+        probe_xml = build_probe(message_id)
+
+        sock = None
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
             sock.settimeout(timeout)
@@ -94,21 +129,30 @@ class WsdScanner(ScannerProtocol):
             # Send probe
             sock.sendto(probe_xml.encode("utf-8"), (WSD_MULTICAST, WSD_PORT))
 
-            # Collect responses
-            end_time = time.time() + timeout
-            while time.time() < end_time:
+            # Collect responses until the deadline; devices often answer twice.
+            end_time = time.monotonic() + timeout
+            seen: set[str] = set()
+            while True:
+                remaining = end_time - time.monotonic()
+                if remaining <= 0:
+                    break
+                sock.settimeout(remaining)
                 try:
                     data, addr = sock.recvfrom(65535)
-                    scanner = self._parse_probe_response(data, addr[0])
-                    if scanner:
-                        scanners.append(scanner)
                 except socket.timeout:
                     break
-
-            sock.close()
+                if addr[0] in seen:
+                    continue
+                scanner = self._parse_probe_response(data, addr[0])
+                if scanner:
+                    seen.add(addr[0])
+                    scanners.append(scanner)
 
         except OSError as e:
             logger.warning("WSD discovery failed: %s", e)
+        finally:
+            if sock is not None:
+                sock.close()
 
         return scanners
 
@@ -122,15 +166,17 @@ class WsdScanner(ScannerProtocol):
             )
             root = ET.fromstring(resp_xml)
 
-            state_el = root.find(".//wscn:ScannerState", NS)
+            state_el = root.find(".//wscn:ScannerStatus/wscn:ScannerState", NS)
+            if state_el is None:
+                state_el = root.find(".//wscn:ScannerState", NS)
             state = ScannerState.IDLE
-            if state_el is not None:
+            if state_el is not None and state_el.text:
                 state_map = {
                     "Idle": ScannerState.IDLE,
                     "Processing": ScannerState.PROCESSING,
                     "Stopped": ScannerState.STOPPED,
                 }
-                state = state_map.get(state_el.text, ScannerState.IDLE)
+                state = state_map.get(state_el.text.strip(), ScannerState.IDLE)
 
             adf_el = root.find(".//wscn:AdfState", NS)
             adf_state = AdfState.UNKNOWN
@@ -140,7 +186,7 @@ class WsdScanner(ScannerProtocol):
                     "Loaded": AdfState.LOADED,
                     "Jammed": AdfState.JAMMED,
                 }
-                adf_state = adf_map.get(adf_el.text, AdfState.UNKNOWN)
+                adf_state = adf_map.get((adf_el.text or "").strip(), AdfState.UNKNOWN)
 
             return ScannerStatus(state=state, adf_state=adf_state)
 
@@ -158,54 +204,9 @@ class WsdScanner(ScannerProtocol):
                 "http://schemas.microsoft.com/windows/2006/08/wdp/scan/GetScannerElements",
                 self._build_get_scanner_elements(),
             )
-            root = ET.fromstring(resp_xml)
-
-            # Parse sources
-            sources = []
-            if root.find(".//wscn:Platen", NS) is not None:
-                sources.append(ScanSource.FLATBED)
-            if root.find(".//wscn:ADF", NS) is not None:
-                sources.append(ScanSource.ADF)
-            caps.sources = sources or [ScanSource.FLATBED]
-
-            # Parse resolutions (scoped to the actual resolution-list
-            # elements - a bare ".//Width" search also matches unrelated
-            # Width elements like PlatenMinimumSize/PlatenMaximumSize)
-            res_els = (
-                root.findall(".//wscn:PlatenResolutions/wscn:Widths/wscn:Width", NS)
-                + root.findall(".//wscn:ADFResolutions/wscn:Widths/wscn:Width", NS)
-            )
-            if res_els:
-                resolutions = sorted(set(
-                    int(r.text) for r in res_els if r.text and r.text.isdigit()
-                ))
-                if resolutions:
-                    caps.resolutions = resolutions
-
-            # Parse supported WSD format tokens (not MIME types)
-            format_els = root.findall(".//wscn:FormatsSupported/wscn:FormatValue", NS)
-            if format_els:
-                caps.formats = [f.text.strip() for f in format_els if f.text]
-
-            # Native max scan area (WSD scan units, ~1/1000 inch) - used to
-            # build an explicit InputMediaSize, since many devices (e.g.
-            # Canon G-series) advertise DocumentSizeAutoDetectSupported=false
-            # and reject CreateScanJob requests that ask for auto-detect.
-            max_size_el = root.find(".//wscn:PlatenMaximumSize", NS)
-            if max_size_el is not None:
-                w_el = max_size_el.find("wscn:Width", NS)
-                h_el = max_size_el.find("wscn:Height", NS)
-                if w_el is not None and w_el.text and w_el.text.isdigit():
-                    caps.max_width = int(w_el.text)
-                if h_el is not None and h_el.text and h_el.text.isdigit():
-                    caps.max_height = int(h_el.text)
-
-            # Duplex
-            duplex_el = root.find(".//wscn:AdfDuplexer", NS)
-            caps.duplex = duplex_el is not None
-
+            caps = parse_capabilities(ET.fromstring(resp_xml))
         except Exception as e:
-            logger.debug("WSD capabilities failed for %s: %s", scanner.ip, e)
+            logger.warning("WSD capabilities failed for %s: %s", scanner.ip, e)
 
         return caps
 
@@ -221,46 +222,67 @@ class WsdScanner(ScannerProtocol):
         self._wait_until_idle(scanner)
 
         caps = self.get_capabilities(scanner)
+        if caps.sources and settings.source not in caps.sources:
+            if settings.source == ScanSource.ADF:
+                raise RuntimeError("This scanner has no document feeder.")
+            raise RuntimeError("This scanner has no flatbed glass.")
         format_token = self._pick_format(caps.formats)
 
-        # Create scan job
-        job_xml = self._build_create_scan_job(
-            settings, format_token, caps.max_width, caps.max_height
-        )
-        resp_xml = self._soap_request(
-            scanner,
-            "http://schemas.microsoft.com/windows/2006/08/wdp/scan/CreateScanJob",
-            job_xml,
-        )
+        job_xml = self._build_create_scan_job(settings, format_token, caps=caps)
+        resp_xml = self._soap_request(scanner, SCAN_ACTION + "CreateScanJob", job_xml)
 
         root = ET.fromstring(resp_xml)
         job_id_el = root.find(".//wscn:JobId", NS)
         job_token_el = root.find(".//wscn:JobToken", NS)
-
         if job_id_el is None or job_token_el is None:
             raise RuntimeError("Failed to create WSD scan job - no JobId/JobToken")
 
-        job_id = job_id_el.text
-        job_token = job_token_el.text
+        job_id = (job_id_el.text or "").strip()
+        job_token = (job_token_el.text or "").strip()
         logger.info("WSD scan job created: %s", job_id)
 
-        # Wait briefly
-        time.sleep(1.0)
-
-        # Retrieve image. WSD returns this as an MTOM/XOP multipart
-        # response (a SOAP envelope part plus a separate binary image
-        # part), not a bare image body - it must be demultiplexed.
-        retrieve_xml = self._build_retrieve_image(job_id, job_token)
-        raw_data, content_type = self._soap_request(
-            scanner,
-            "http://schemas.microsoft.com/windows/2006/08/wdp/scan/RetrieveImage",
-            retrieve_xml,
-            raw_response=True,
+        images = self._retrieve_images(
+            scanner, job_id, job_token, multi=settings.source == ScanSource.ADF
         )
-        image_data = self._extract_mtom_part(raw_data, content_type)
+        resolution = nearest_resolution(settings.resolution, caps.resolutions)
+        pdf = finish_scan(combine_pages(images, resolution), resolution,
+                          settings.remove_blank_pages)
+        logger.info("WSD scan complete: %d image(s), %d bytes", len(images), len(pdf))
+        return pdf
 
-        logger.info("WSD scan complete: %d bytes", len(image_data))
-        return image_data
+    def _retrieve_images(self, scanner: ScannerInfo, job_id: str, job_token: str,
+                         multi: bool) -> list[bytes]:
+        """Call RetrieveImage until the device reports no more images.
+
+        The response is MTOM/XOP `multipart/related` (a SOAP envelope part
+        plus a binary image part) and must be demultiplexed.
+        """
+        retrieve_xml = self._build_retrieve_image(job_id, job_token)
+        images: list[bytes] = []
+        early_faults = 0
+        while len(images) < self.max_pages:
+            try:
+                raw_data, content_type = self._soap_request(
+                    scanner, SCAN_ACTION + "RetrieveImage", retrieve_xml,
+                    raw_response=True, timeout=self.retrieve_timeout,
+                )
+            except WsdFault as f:
+                if any(k in f.subcode for k in _END_OF_JOB_FAULTS):
+                    if images:
+                        break
+                    if "NoImagesAvailable" in f.subcode and early_faults + 1 < self.first_image_attempts:
+                        # Some devices fault until the first page is ready.
+                        early_faults += 1
+                        time.sleep(self.retry_delay)
+                        continue
+                    raise RuntimeError(
+                        "The scanner returned no pages. Check that paper is loaded."
+                    ) from f
+                raise
+            images.append(self._extract_mtom_part(raw_data, content_type))
+            if not multi:
+                break
+        return images
 
     def _extract_mtom_part(self, raw_data: bytes, content_type: str) -> bytes:
         """Pull the binary image payload out of an MTOM/XOP multipart body.
@@ -359,6 +381,7 @@ class WsdScanner(ScannerProtocol):
                 port=80,
                 protocol="wsd",
                 model="WSD Scanner",
+                uuid=device_uuid or "",
             )
 
             from urllib.parse import urlparse
@@ -449,6 +472,7 @@ class WsdScanner(ScannerProtocol):
         action: str,
         body_xml: str,
         raw_response: bool = False,
+        timeout: Optional[float] = None,
     ):
         """Send a SOAP request to the scanner."""
         message_id = f"urn:uuid:{uuid.uuid4()}"
@@ -479,19 +503,18 @@ class WsdScanner(ScannerProtocol):
         )
 
         try:
-            with urlopen(req, timeout=30) as resp:
+            with urlopen(req, timeout=timeout or self.http_timeout) as resp:
                 data = resp.read()
                 if raw_response:
                     return data, resp.headers.get("Content-Type", "")
                 return data.decode("utf-8")
         except HTTPError as e:
             fault = self._parse_soap_fault(e)
-            logger.error(
-                "WSD %s failed for %s: HTTP %d%s",
-                action, url, e.code, f" - {fault}" if fault else "",
-            )
+            subcode = fault.split(":")[0].strip() if fault else ""
             detail = f"HTTP {e.code}" + (f" ({fault})" if fault else "")
-            raise RuntimeError(f"WSD SOAP request failed: {detail}") from e
+            if not any(k in subcode for k in _END_OF_JOB_FAULTS):
+                logger.error("WSD %s failed for %s: %s", action.rsplit("/", 1)[-1], url, detail)
+            raise WsdFault(f"WSD SOAP request failed: {detail}", subcode) from e
 
     def _parse_soap_fault(self, error: HTTPError) -> str:
         """Extract the SOAP fault subcode/reason from an error response body."""
@@ -509,7 +532,7 @@ class WsdScanner(ScannerProtocol):
         reason_el = root.find(f".//{{{soap_ns}}}Reason/{{{soap_ns}}}Text")
         parts = []
         if subcode_el is not None and subcode_el.text:
-            parts.append(subcode_el.text.strip())
+            parts.append(subcode_el.text.strip().split(":")[-1])
         if reason_el is not None and reason_el.text:
             parts.append(reason_el.text.strip())
         return ": ".join(parts)
@@ -525,12 +548,15 @@ class WsdScanner(ScannerProtocol):
 
     def _pick_format(self, formats_supported: list[str]) -> str:
         """Pick a WSD Format token, preferring higher quality formats."""
-        available = {f.lower() for f in formats_supported}
+        available = {f.strip().lower() for f in formats_supported}
         for candidate in _FORMAT_PREFERENCE:
             if candidate in available:
                 return candidate
         if formats_supported:
-            return formats_supported[0]
+            logger.warning(
+                "Scanner formats %s are not ones OpenScanHub can read; asking for %s",
+                formats_supported, _DEFAULT_FORMAT,
+            )
         return _DEFAULT_FORMAT
 
     def _build_create_scan_job(
@@ -539,37 +565,62 @@ class WsdScanner(ScannerProtocol):
         format_token: str,
         max_width: int = 0,
         max_height: int = 0,
+        caps: Optional[ScannerCapabilities] = None,
     ) -> str:
         # Element order/structure follows sane-airscan's wsd_scan_query()
         # (a WSD client verified working against real-world devices,
-        # including this exact Canon G-series model) rather than guessing
-        # from the abstract (alphabetically-listed) MS docs - a plain
-        # ScanTicket built from the docs alone got InvalidArgs from this
-        # printer. Notably: no top-level Scaling element, ImagesToTransfer
-        # is required, and the scan area is set via ScanRegion nested
-        # inside MediaFront/MediaBack, not Scaling. JobInformation is
-        # spec-optional but sane-airscan notes Canon devices reject the
-        # job with the same InvalidArgs fault without it.
-        input_source = "ADF" if settings.source == ScanSource.ADF else "Platen"
-        color_mode = to_protocol_color_mode(settings.color_mode)
+        # including the Canon G-series) rather than the alphabetically
+        # listed MS docs: no top-level Scaling element, ImagesToTransfer is
+        # required, and the scan area is a ScanRegion inside
+        # MediaFront/MediaBack. JobInformation is spec-optional but Canon
+        # devices reject the job with InvalidArgs without it.
+        if caps is None:
+            caps = ScannerCapabilities()
+            if max_width and max_height:
+                caps.max_width, caps.max_height = max_width, max_height
+        adf = settings.source == ScanSource.ADF
+        duplex = False
+        if settings.duplex and adf:
+            if caps.duplex:
+                duplex = True
+            else:
+                logger.warning("Two-sided scanning is not supported by this scanner; scanning one side")
+        input_source = ("ADFDuplex" if duplex else "ADF") if adf else "Platen"
+        color_mode = pick_color_mode(settings.color_mode, caps.color_modes)
+        resolution = nearest_resolution(settings.resolution, caps.resolutions)
 
-        # Many devices (e.g. Canon G-series) advertise
-        # DocumentSizeAutoDetectSupported=false and reject a job that asks
-        # for auto-detect; fall back to the device's own reported max size.
-        if max_width and max_height:
+        # WS-Scan sizes are in 1/1000 inch. AutoDetect is only requested
+        # when the device says it supports it (Canon G-series rejects it).
+        max_size = caps.max_size_for(settings.source)
+        page_size = (settings.page_size or "auto").lower()
+        if page_size == "auto" and not (max_size[0] and max_size[1]) and caps.auto_detect:
+            input_size = "<wscn:DocumentSizeAutoDetect>true</wscn:DocumentSizeAutoDetect>"
+            region = ""
+        else:
+            width, height = scan_region(page_size, 1000, max_size)
             input_size = f"""<wscn:InputMediaSize>
-                            <wscn:Width>{max_width}</wscn:Width>
-                            <wscn:Height>{max_height}</wscn:Height>
+                            <wscn:Width>{width}</wscn:Width>
+                            <wscn:Height>{height}</wscn:Height>
                         </wscn:InputMediaSize>"""
-            scan_region = f"""<wscn:ScanRegion>
+            region = f"""<wscn:ScanRegion>
                                 <wscn:ScanRegionXOffset>0</wscn:ScanRegionXOffset>
                                 <wscn:ScanRegionYOffset>0</wscn:ScanRegionYOffset>
-                                <wscn:ScanRegionWidth>{max_width}</wscn:ScanRegionWidth>
-                                <wscn:ScanRegionHeight>{max_height}</wscn:ScanRegionHeight>
+                                <wscn:ScanRegionWidth>{width}</wscn:ScanRegionWidth>
+                                <wscn:ScanRegionHeight>{height}</wscn:ScanRegionHeight>
                             </wscn:ScanRegion>"""
-        else:
-            input_size = "<wscn:DocumentSizeAutoDetect>true</wscn:DocumentSizeAutoDetect>"
-            scan_region = ""
+
+        def side(tag: str) -> str:
+            return f"""<wscn:{tag}>
+                            <wscn:ColorProcessing>{color_mode}</wscn:ColorProcessing>
+                            <wscn:Resolution>
+                                <wscn:Width>{resolution}</wscn:Width>
+                                <wscn:Height>{resolution}</wscn:Height>
+                            </wscn:Resolution>
+                            {region}
+                        </wscn:{tag}>"""
+
+        sides = side("MediaFront") + (side("MediaBack") if duplex else "")
+        images_to_transfer = 0 if adf else 1  # 0 = until the feeder is empty
 
         return f"""<wscn:CreateScanJobRequest>
             <wscn:ScanTicket>
@@ -580,20 +631,13 @@ class WsdScanner(ScannerProtocol):
                 </wscn:JobDescription>
                 <wscn:DocumentParameters>
                     <wscn:Format>{format_token}</wscn:Format>
-                    <wscn:ImagesToTransfer>1</wscn:ImagesToTransfer>
+                    <wscn:ImagesToTransfer>{images_to_transfer}</wscn:ImagesToTransfer>
                     <wscn:InputSize>
                         {input_size}
                     </wscn:InputSize>
                     <wscn:InputSource>{input_source}</wscn:InputSource>
                     <wscn:MediaSides>
-                        <wscn:MediaFront>
-                            <wscn:ColorProcessing>{color_mode}</wscn:ColorProcessing>
-                            <wscn:Resolution>
-                                <wscn:Width>{settings.resolution}</wscn:Width>
-                                <wscn:Height>{settings.resolution}</wscn:Height>
-                            </wscn:Resolution>
-                            {scan_region}
-                        </wscn:MediaFront>
+                        {sides}
                     </wscn:MediaSides>
                 </wscn:DocumentParameters>
             </wscn:ScanTicket>
@@ -607,3 +651,72 @@ class WsdScanner(ScannerProtocol):
                 <wscn:DocumentName>scan.pdf</wscn:DocumentName>
             </wscn:DocumentDescription>
         </wscn:RetrieveImageRequest>"""
+
+
+def _bool(text: Optional[str]) -> bool:
+    return (text or "").strip().lower() in ("true", "1")
+
+
+def _size(el: Optional[ET.Element]) -> tuple[int, int]:
+    if el is None:
+        return 0, 0
+    w = (el.findtext("wscn:Width", "", NS) or "").strip()
+    h = (el.findtext("wscn:Height", "", NS) or "").strip()
+    return (int(w) if w.isdigit() else 0, int(h) if h.isdigit() else 0)
+
+
+def parse_capabilities(root: ET.Element) -> ScannerCapabilities:
+    """Parse a GetScannerElements response (ScannerConfiguration).
+
+    Searches are scoped to the specific parent elements: a bare
+    ".//Width" would also match PlatenMaximumSize (1/1000 inch values).
+    """
+    caps = ScannerCapabilities()
+    config = root.find(".//wscn:ScannerConfiguration", NS)
+    if config is None:
+        config = root
+    platen = config.find(".//wscn:Platen", NS)
+    adf = config.find(".//wscn:ADF", NS)
+
+    sources = []
+    if platen is not None:
+        sources.append(ScanSource.FLATBED)
+    if adf is not None:
+        sources.append(ScanSource.ADF)
+    caps.sources = sources or [ScanSource.FLATBED]
+
+    res_els = (
+        config.findall(".//wscn:PlatenResolutions/wscn:Widths/wscn:Width", NS)
+        + config.findall(".//wscn:ADFResolutions/wscn:Widths/wscn:Width", NS)
+    )
+    resolutions = sorted({int(r.text.strip()) for r in res_els
+                          if r.text and r.text.strip().isdigit()})
+    if resolutions:
+        caps.resolutions = resolutions
+
+    format_els = config.findall(".//wscn:FormatsSupported/wscn:FormatValue", NS)
+    formats = [f.text.strip() for f in format_els if f.text and f.text.strip()]
+    if formats:
+        caps.formats = formats
+
+    colors: list[str] = []
+    for c in config.findall(".//wscn:PlatenColor/wscn:ColorEntry", NS) + \
+            config.findall(".//wscn:ADFColor/wscn:ColorEntry", NS):
+        if c.text and c.text.strip() not in colors:
+            colors.append(c.text.strip())
+    caps.color_modes = colors
+
+    if platen is not None:
+        size = _size(platen.find("wscn:PlatenMaximumSize", NS))
+        if size[0] and size[1]:
+            caps.source_sizes[ScanSource.FLATBED.value] = size
+    if adf is not None:
+        size = _size(adf.find(".//wscn:ADFMaximumSize", NS))
+        if size[0] and size[1]:
+            caps.source_sizes[ScanSource.ADF.value] = size
+        caps.duplex = _bool(adf.findtext("wscn:ADFSupportsDuplex", "", NS))
+    first = caps.source_sizes.get(caps.sources[0].value)
+    if first:
+        caps.max_width, caps.max_height = first
+    caps.auto_detect = _bool(config.findtext(".//wscn:DocumentSizeAutoDetectSupported", "", NS))
+    return caps

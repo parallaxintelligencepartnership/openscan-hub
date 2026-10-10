@@ -240,7 +240,7 @@ def test_status_and_odd_xml(device, escl):
                           '<scan:XResolution>x</scan:XResolution></scan:PlatenInputCaps>'
                           '</scan:Platen></scan:ScannerCapabilities>')
     caps = parse_capabilities(weird)
-    assert caps.sources == [ScanSource.FLATBED] and caps.resolutions == [300]
+    assert caps.sources == [ScanSource.FLATBED] and caps.resolutions == [] and caps.color_modes == []
 
 
 def test_offline_status():

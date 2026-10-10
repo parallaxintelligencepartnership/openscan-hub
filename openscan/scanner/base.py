@@ -168,10 +168,12 @@ class ScannerStatus:
 
 @dataclass
 class ScannerCapabilities:
-    resolutions: list[int] = field(default_factory=lambda: [300])
+    # Empty resolutions/color_modes mean "not reported": requests then use the
+    # user's setting unchanged instead of forcing a guessed default.
+    resolutions: list[int] = field(default_factory=list)
     sources: list[ScanSource] = field(default_factory=list)
     formats: list[str] = field(default_factory=lambda: ["application/pdf"])
-    color_modes: list[str] = field(default_factory=lambda: ["RGB24"])
+    color_modes: list[str] = field(default_factory=list)
     max_width: int = 0  # native scan units; 0 = unknown/unreported
     max_height: int = 0  # native scan units; 0 = unknown/unreported
     duplex: bool = False
