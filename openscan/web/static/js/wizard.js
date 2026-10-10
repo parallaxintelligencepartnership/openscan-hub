@@ -255,7 +255,7 @@ const wizard = {
                 this.showError('step2-error', data.error || 'Could not save your settings.');
                 return;
             }
-            (data.warnings || []).forEach(w => toast(w, 'warning', 8000));
+            showWarnings('save-warnings', data.warnings);
             await this.prepareDone(body);
             this.show(3);
         } catch (err) {

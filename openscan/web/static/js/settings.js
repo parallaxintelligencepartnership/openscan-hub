@@ -199,7 +199,7 @@ const settings = {
             const data = await api.post('api/settings', body);
             if (!data.saved) { toast(data.error || 'Could not save', 'error', 8000); return; }
             toast('Settings saved', 'success');
-            (data.warnings || []).forEach(w => toast(w, 'warning', 8000));
+            showWarnings('save-warnings', data.warnings);
             $('restart-alert').classList.toggle('hidden', !data.restart_needed);
             this.newScanner = null;
             this.cfg = await api.get('api/config');

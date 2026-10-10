@@ -97,16 +97,69 @@ def test_missing_stop_function_is_tolerated(fake_services):
 
 
 def test_start_failure_is_reported_not_raised(fake_services):
+    # The real start functions return False (they do not raise) when they
+    # cannot start, and say why through their *_error() function.
+    mod = fake_services.module("openscan.scanner.ftp_receive")
+    mod.start_ftp_receiver = lambda cfg: False
+    mod.ftp_receiver_error = lambda: "port 2121 is in use"
+    cfg = _base()
+    cfg.ftp_receive.enabled = True
+    report = services.start_all(cfg)
+    assert "FTP receiver" not in report["started"]
+    assert report["failed"] == {"FTP receiver": "FTP receiver could not start: port 2121 is in use"}
+    assert report["errors"] == ["FTP receiver could not start: port 2121 is in use"]
+
+
+def test_raising_start_is_reported(fake_services):
     mod = fake_services.module("openscan.scanner.ftp_receive")
 
     def boom(cfg):
-        raise OSError("port 2121 in use")
+        raise OSError("disk on fire")
 
     mod.start_ftp_receiver = boom
     cfg = _base()
     cfg.ftp_receive.enabled = True
     report = services.start_all(cfg)
-    assert any("port 2121 in use" in e for e in report["errors"])
+    assert "disk on fire" in report["failed"]["FTP receiver"]
+
+
+def test_restart_failure_is_reported(fake_services):
+    old = _base()
+    old.folder_watch.enabled = True
+    old.folder_watch.watch_folder = "/tmp/in"
+    new = copy.deepcopy(old)
+    new.folder_watch.watch_folder = "/tmp/scans/in"
+    mod = fake_services.module("openscan.scanner.folder_watch")
+    mod.start_folder_watcher = lambda cfg: False
+    mod.folder_watcher_error = lambda: "it is inside the scans folder"
+    report = services.apply_config(old, new)
+    assert "folder watcher" not in report["restarted"]
+    assert report["failed"]["folder watcher"] == \
+        "Folder watcher could not start: it is inside the scans folder"
+
+
+def test_real_ftp_receiver_on_busy_port_is_reported(config_dir, monkeypatch):
+    import socket
+
+    busy = socket.socket()
+    busy.bind(("0.0.0.0", 0))  # the receiver listens on all interfaces
+    busy.listen(1)
+    try:
+        port = busy.getsockname()[1]
+        ftp_svc = [s for s in services.SERVICES if s.name == "FTP receiver"]
+        monkeypatch.setattr(services, "SERVICES", ftp_svc)
+        cfg = _base()
+        cfg.ftp_receive.enabled = True
+        cfg.ftp_receive.port = port
+        cfg.ftp_receive.password = "pw-12345"
+        report = services.start_all(cfg)
+        assert report["started"] == []
+        assert report["failed"]["FTP receiver"] == \
+            f"FTP receiver could not start: port {port} is in use by another program"
+    finally:
+        busy.close()
+        from openscan.scanner import ftp_receive
+        ftp_receive.stop_ftp_receiver()
 
 
 def test_missing_module_is_tolerated(monkeypatch):

@@ -167,3 +167,20 @@ def test_queue_retry(live_server, monkeypatch):
     assert calls == ["a1"]
     assert live_server.post("/api/queue/retry", {}, token=TOKEN).json() == {"retried": 3}
     assert live_server.get("/api/health").json()["queue_pending"] == 1
+
+
+def test_service_that_cannot_start_is_a_save_warning(live_server, app_config, fake_services):
+    mod = fake_services.module("openscan.scanner.ftp_receive")
+    mod.start_ftp_receiver = lambda cfg: False
+    mod.ftp_receiver_error = lambda: "port 2121 is in use by another program"
+    msg = "FTP receiver could not start: port 2121 is in use by another program"
+    r = live_server.post("/api/settings", {"ftp_receive": {"enabled": True}}, token=TOKEN)
+    assert r.status == 200, r.body
+    assert msg in r.json()["warnings"]
+    r = live_server.post("/api/settings", {"ftp_receive": {"enabled": False}}, token=TOKEN)
+    r = live_server.post("/api/save-config", {
+        "output": {"folder": app_config.output.folder},
+        "ftp_receive": {"enabled": True},
+    }, token=TOKEN)
+    assert r.status == 200, r.body
+    assert msg in r.json()["warnings"]

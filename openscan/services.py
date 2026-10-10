@@ -37,6 +37,12 @@ class Service:
     wanted: Callable[[AppConfig], bool]
     sections: tuple[str, ...]
     start_with: str = "config"  # "config" passes the AppConfig, "mdns" passes bind/port
+    error_fn: Optional[str] = None  # module function saying why a start returned False
+    label: str = ""  # name at the start of a sentence; defaults to name
+
+    @property
+    def title(self) -> str:
+        return self.label or (self.name[:1].upper() + self.name[1:])
 
 
 DELIVERY = ("output", "paperless", "scan")
@@ -51,11 +57,13 @@ SERVICES: list[Service] = [
         "folder watcher", "openscan.scanner.folder_watch", "start_folder_watcher", "stop_folder_watcher",
         lambda c: c.wizard_completed and c.folder_watch.enabled and bool(c.folder_watch.watch_folder),
         ("folder_watch",) + DELIVERY,
+        error_fn="folder_watcher_error",
     ),
     Service(
         "FTP receiver", "openscan.scanner.ftp_receive", "start_ftp_receiver", "stop_ftp_receiver",
         lambda c: c.wizard_completed and c.ftp_receive.enabled,
         ("ftp_receive",) + DELIVERY,
+        error_fn="ftp_receiver_error",
     ),
     Service(
         "retry queue", "openscan.retry_queue", "start", "stop",
@@ -97,23 +105,49 @@ def _target(svc: Service, fn_name: str) -> Optional[Callable]:
     return getattr(mod, fn_name, None)
 
 
-def _call(svc: Service, fn_name: str, config: Optional[AppConfig], errors: list[str]) -> bool:
+def _start_error(svc: Service) -> str:
+    detail = ""
+    if svc.error_fn:
+        try:
+            fn = getattr(_load(svc.module), svc.error_fn, None)
+            detail = (fn() or "") if fn else ""
+        except Exception:
+            detail = ""
+    return f"{svc.title} could not start" + (f": {detail}" if detail else ".")
+
+
+def _call(svc: Service, fn_name: str, config: Optional[AppConfig], errors: list[str],
+          failed: Optional[dict] = None) -> bool:
+    """Run a start or stop function. A start that raises or returns False is
+    a failure: its plain message goes into `errors` and `failed[svc.name]`."""
     func = _target(svc, fn_name)
     if func is None:
         return False
+    starting = config is not None
     try:
         if config is None:
-            func()
+            result = func()
         elif svc.start_with == "mdns":
             bind, port = _running_web or (config.web.bind, config.web.port)
-            func(port=port, bind=bind)
+            result = func(port=port, bind=bind)
         else:
-            func(config)
-        return True
+            result = func(config)
     except Exception as e:
-        logger.error("Could not %s the %s: %s", "start" if config else "stop", svc.name, e)
-        errors.append(f"Could not {'start' if config else 'stop'} the {svc.name}: {e}")
+        logger.error("Could not %s the %s: %s", "start" if starting else "stop", svc.name, e)
+        msg = (f"{svc.title} could not start: {e}" if starting
+               else f"Could not stop the {svc.name}: {e}")
+        errors.append(msg)
+        if starting and failed is not None:
+            failed[svc.name] = msg
         return False
+    if starting and result is False:
+        msg = _start_error(svc)
+        logger.error(msg)
+        errors.append(msg)
+        if failed is not None:
+            failed[svc.name] = msg
+        return False
+    return True
 
 
 def _prepare(config: AppConfig) -> None:
@@ -142,9 +176,12 @@ def apply_config(old: Optional[AppConfig], new: AppConfig) -> dict:
 
     `old` is the config the services were started with (None at startup).
     Returns {"started": [...], "stopped": [...], "restarted": [...],
-    "errors": [...], "restart_needed": bool}.
+    "errors": [...], "failed": {service: message}, "restart_needed": bool}.
+    A service whose start function raised or returned False is in "failed"
+    (and its message in "errors"), never in "started" or "restarted".
     """
-    report = {"started": [], "stopped": [], "restarted": [], "errors": [], "restart_needed": False}
+    report = {"started": [], "stopped": [], "restarted": [], "errors": [], "failed": {},
+              "restart_needed": False}
     with _lock:
         _prepare(new)
         for svc in SERVICES:
@@ -154,11 +191,11 @@ def apply_config(old: Optional[AppConfig], new: AppConfig) -> dict:
                 if _call(svc, svc.stop, None, report["errors"]):
                     report["stopped"].append(svc.name)
             elif want_new and not want_old:
-                if _call(svc, svc.start, new, report["errors"]):
+                if _call(svc, svc.start, new, report["errors"], report["failed"]):
                     report["started"].append(svc.name)
             elif want_new and want_old and _section_changed(old, new, svc.sections):
                 _call(svc, svc.stop, None, report["errors"])
-                if _call(svc, svc.start, new, report["errors"]):
+                if _call(svc, svc.start, new, report["errors"], report["failed"]):
                     report["restarted"].append(svc.name)
         report["restart_needed"] = restart_needed(new)
     for key in ("started", "stopped", "restarted"):

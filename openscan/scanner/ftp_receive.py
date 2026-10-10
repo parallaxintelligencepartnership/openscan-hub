@@ -8,6 +8,7 @@ This replaces the need for a standalone FTP server. Just point your
 scanner's Scan-to-FTP settings at OpenScanHub's IP on port 2121.
 """
 
+import errno
 import logging
 import os
 import re
@@ -209,12 +210,21 @@ def start_ftp_receiver(config: AppConfig, host: str = "0.0.0.0") -> bool:
         try:
             server = _build_server(config, host)
         except ImportError:
-            _ftp_error = "The FTP receiver needs the pyftpdlib package."
-            logger.error(_ftp_error)
+            _ftp_error = "the pyftpdlib package is not installed"
+            logger.error("FTP receiver could not start: %s", _ftp_error)
             return False
-        except (OSError, ValueError) as e:
-            _ftp_error = f"The FTP receiver could not start: {e}"
-            logger.error(_ftp_error)
+        except OSError as e:
+            if e.errno is None and e.args and isinstance(e.args[0], OSError):
+                e = e.args[0]  # pyftpdlib wraps the bind error
+            if e.errno in (errno.EADDRINUSE, getattr(errno, "WSAEADDRINUSE", -1)):
+                _ftp_error = f"port {config.ftp_receive.port} is in use by another program"
+            else:
+                _ftp_error = e.strerror or str(e)
+            logger.error("FTP receiver could not start: %s", _ftp_error)
+            return False
+        except ValueError as e:
+            _ftp_error = str(e)
+            logger.error("FTP receiver could not start: %s", _ftp_error)
             return False
         _ftp_error = None
         _ftp_server = server

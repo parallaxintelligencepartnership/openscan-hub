@@ -81,3 +81,13 @@ function scanResultToast(data) {
         toast(data.message || `Scan failed: ${data.error || 'unknown problem'}`, 'error', 8000);
     }
 }
+
+// Show save warnings (for example a service that could not start) in a
+// yellow box that stays until the next save.
+function showWarnings(elementId, warnings) {
+    const box = document.getElementById(elementId);
+    if (!box) return;
+    const list = Array.isArray(warnings) ? warnings : [];
+    box.innerHTML = list.map(w => `<div>${esc(w)}</div>`).join('');
+    box.classList.toggle('hidden', list.length === 0);
+}
