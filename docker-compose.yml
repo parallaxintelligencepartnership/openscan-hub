@@ -1,21 +1,31 @@
+# OpenScanHub with Docker Compose.
+# First run:  mkdir -p scans && docker compose up -d
+# Then open http://<this-machine>:8020 and follow the setup steps.
 services:
   openscan:
-    build: .
-    image: openscan-hub
+    image: ghcr.io/parallaxintelligencepartnership/openscan-hub:latest
+    # To build from this folder instead of pulling, uncomment:
+    # build: .
     container_name: openscan-hub
+    restart: unless-stopped
     ports:
       - "8020:8020"
+      # FTP receiver ("Scan to FTP" on the scanner): turn it on in Settings,
+      # then uncomment the next two lines. Anyone on your network can reach them.
+      # - "2121:2121"
+      # - "60000-60010:60000-60010"
     volumes:
       - openscan-config:/config
       - ./scans:/scans
-    restart: unless-stopped
-    # network_mode: host is needed for mDNS scanner discovery.
-    # If you don't need auto-discovery (using manual IP entry),
-    # you can remove this and use the ports mapping above instead.
-    network_mode: host
     environment:
-      - OPENSCAN_DOCKER=1
-      - OPENSCAN_CONFIG_DIR=/config
+      # Your time zone, used for the date and time in scan file names,
+      # for example America/New_York or America/Los_Angeles.
+      - TZ=Etc/UTC
+
+    # Automatic scanner discovery uses mDNS, which needs the host network.
+    # If you would rather pick the scanner by IP address, leave this as is.
+    # To turn discovery on, uncomment the next line and remove "ports:" above.
+    # network_mode: host
 
 volumes:
   openscan-config:

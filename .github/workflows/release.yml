@@ -5,100 +5,201 @@ on:
     tags:
       - 'v*'
 
-permissions:
-  contents: write
-  packages: write
+# Nothing by default; each job asks only for what it needs.
+permissions: {}
 
 jobs:
-  build-exe:
-    runs-on: windows-latest
+  check-version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      prerelease: ${{ steps.check.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          python-version: '3.12'
+          persist-credentials: false
 
-      - name: Install dependencies
-        run: pip install -e ".[tray,dev]"
+      - name: Tag must match the version in pyproject.toml and openscan/__init__.py
+        id: check
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          VERSION="${TAG#v}"
+          PY_VER=$(python3 -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          INIT_VER=$(python3 -c "import re;print(re.search(r'__version__ = \"([^\"]+)\"', open('openscan/__init__.py').read()).group(1))")
+          echo "tag=$VERSION pyproject=$PY_VER __init__=$INIT_VER"
+          if [ "$VERSION" != "$PY_VER" ] || [ "$VERSION" != "$INIT_VER" ]; then
+            echo "::error::Tag $TAG does not match version $PY_VER / $INIT_VER"
+            exit 1
+          fi
+          case "$VERSION" in
+            *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
+            *)   echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+  build-exe:
+    needs: check-version
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+
+      - name: Install pinned dependencies
+        run: |
+          python -m pip install --require-hashes -r requirements.lock
+          python -m pip install --no-deps --no-build-isolation -e .
 
       - name: Build EXE
         run: python build_exe.py
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: OpenScanHub-Windows
           path: dist/OpenScanHub.exe
+          if-no-files-found: error
 
   build-docker:
+    needs: check-version
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+      - name: Image tags
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: |
+            latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ needs.check-version.outputs.prerelease == 'false' }}
+            type=raw,value=latest,enable=${{ needs.check-version.outputs.prerelease == 'false' }}
+
+      - name: Build and push (linux/amd64, linux/arm64)
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+
+      - name: Attest image provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
 
   release:
-    needs: [build-exe, build-docker]
+    needs: [check-version, build-exe, build-docker]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Download Windows EXE
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: OpenScanHub-Windows
           path: dist/
 
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum OpenScanHub.exe > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      - name: Attest EXE provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/OpenScanHub.exe
+
       - name: Generate changelog
         id: changelog
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
-          PREV_TAG=$(git tag --sort=-v:refname | head -2 | tail -1)
-          if [ -z "$PREV_TAG" ]; then
-            echo "changes=Initial release" >> $GITHUB_OUTPUT
-          else
-            CHANGES=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s" --no-merges)
-            echo "changes<<EOF" >> $GITHUB_OUTPUT
-            echo "$CHANGES" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-          fi
+          set -eu
+          PREV_TAG=$(git tag --sort=-v:refname | grep -vx "$TAG" | head -1 || true)
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          DELIM="CHANGES_$(openssl rand -hex 16)"
+          {
+            echo "changes<<$DELIM"
+            if [ -z "$PREV_TAG" ]; then
+              echo "Initial release"
+            else
+              git log "${PREV_TAG}..${TAG}" --pretty=format:"- %s" --no-merges
+              echo
+            fi
+            echo "$DELIM"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
-          files: dist/OpenScanHub.exe
+          files: |
+            dist/OpenScanHub.exe
+            dist/SHA256SUMS.txt
+          prerelease: ${{ needs.check-version.outputs.prerelease == 'true' }}
+          make_latest: ${{ needs.check-version.outputs.prerelease == 'false' }}
           body: |
-            ## What's Changed
+            ## What's changed
 
             ${{ steps.changelog.outputs.changes }}
 
             ## Install
 
-            **Windows**: Download `OpenScanHub.exe` below and double-click to run.
-
-            **Docker**:
-            ```bash
-            docker pull ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            **Windows**: download `OpenScanHub.exe` below and double-click it.
+            The EXE is not code-signed yet, so Windows SmartScreen may say
+            "Windows protected your PC". Click **More info**, then **Run anyway**.
+            To check the download first, run this in PowerShell and compare the
+            result with `SHA256SUMS.txt`:
+            ```powershell
+            Get-FileHash .\OpenScanHub.exe -Algorithm SHA256
             ```
+            Build provenance: `gh attestation verify OpenScanHub.exe --repo ${{ github.repository }}`
 
-            **pip**:
+            **Docker** (linux/amd64 and linux/arm64):
             ```bash
-            pip install openscan-hub==${{ github.ref_name }}
+            docker pull ghcr.io/${{ github.repository }}:${{ steps.changelog.outputs.version }}
             ```
           generate_release_notes: true

@@ -1,0 +1,30 @@
+name: OpenScanHub
+version: "0.3.0"
+slug: openscanhub
+description: Put paper on your network scanner and it lands in a folder or in Paperless-NGX.
+url: https://github.com/parallaxintelligencepartnership/openscan-hub/tree/main/homeassistant-addon
+arch:
+  - amd64
+  - aarch64
+init: false
+startup: application
+boot: auto
+ingress: true
+ingress_port: 8020
+panel_icon: mdi:scanner
+panel_title: Scanner
+# Scanner discovery (mDNS and WS-Discovery) and the FTP receiver need the
+# host network.
+host_network: true
+map:
+  - config:rw
+  - share:rw
+  - media:rw
+options:
+  scans_folder: /share/scans
+  ftp_enabled: false
+  ftp_port: 2121
+schema:
+  scans_folder: str
+  ftp_enabled: bool
+  ftp_port: port
