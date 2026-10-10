@@ -59,7 +59,7 @@ def setup(monkeypatch, tmp_path):
     fake = FakeProtocol()
     saved = []
     monkeypatch.setattr(monitor, "_make_impl", lambda proto: fake)
-    monkeypatch.setattr(monitor, "save_scan", lambda **kw: saved.append(kw) or Delivery(ok=True))
+    monkeypatch.setattr(monitor, "save_scan_for_config", lambda cfg, pdf, name: saved.append({"config": cfg, "pdf_data": pdf, "filename": name}) or Delivery(ok=True))
     monkeypatch.setattr(monitor, "MAX_BACKOFF", 0.2)
     multipage._sessions.clear()
     cfg = AppConfig()
@@ -192,7 +192,7 @@ def test_lifecycle_idempotent_and_disabled(setup):
 
 def test_failed_delivery_is_logged(setup, monkeypatch, caplog):
     fake, saved, cfg = setup
-    monkeypatch.setattr(monitor, "save_scan", lambda **kw: Delivery(ok=False, errors=["NAS offline"]))
+    monkeypatch.setattr(monitor, "save_scan_for_config", lambda cfg, pdf, name: Delivery(ok=False, errors=["NAS offline"]))
     caplog.set_level(logging.ERROR, logger="openscan.monitor")
     monitor.start_monitor(cfg)
     assert _wait_for(lambda: fake.polls >= 2)

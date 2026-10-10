@@ -6,14 +6,14 @@ another scan holds it, the cycle is skipped. It also stays idle while a
 multipage session is in use.
 """
 
-import dataclasses
 import logging
+import os
 import threading
 from datetime import datetime
 from typing import Optional
 
 from .config import AppConfig
-from .output import generate_filename, save_scan
+from .output import generate_filename, save_scan_for_config
 from .scanner.base import (
     AdfState,
     ScannerInfo,
@@ -211,12 +211,6 @@ def _delivery_ok(result) -> bool:
     return bool(result)
 
 
-def _as_dict(result):
-    if dataclasses.is_dataclass(result) and not isinstance(result, type):
-        return dataclasses.asdict(result)
-    return result
-
-
 def _auto_scan(config: AppConfig, scanner_info: ScannerInfo, scanner_impl) -> None:
     """Execute an automatic feeder scan and deliver it. Caller holds scan_lock."""
     d = config.scan
@@ -234,22 +228,16 @@ def _auto_scan(config: AppConfig, scanner_info: ScannerInfo, scanner_impl) -> No
         logger.error("Auto-scan failed: %s", e)
         return
 
-    p = config.paperless
     filename = generate_filename(config.output.filename_pattern)
     try:
-        result = save_scan(
-            pdf_data=pdf_data,
-            output_folder=config.output.folder,
-            filename=filename,
-            paperless_consume=p.consume_folder if p.enabled and p.mode == "consume" else None,
-            paperless_api_url=p.api_url if p.enabled and p.mode == "api" else None,
-            paperless_api_token=p.api_token if p.enabled and p.mode == "api" else None,
-            paperless_tags=p.tags if p.enabled else None,
-        )
+        result = save_scan_for_config(config, pdf_data, filename)
     except Exception as e:
         logger.error("Auto-scan %s could not be saved: %s", filename, e)
         return
 
+    saved_paths = list(getattr(result, "saved_paths", None) or [])
+    if saved_paths:
+        filename = os.path.basename(saved_paths[0])
     if _delivery_ok(result):
         logger.info("Auto-scan saved: %s (%d bytes)", filename, len(pdf_data))
     else:
@@ -257,14 +245,16 @@ def _auto_scan(config: AppConfig, scanner_info: ScannerInfo, scanner_impl) -> No
                      getattr(result, "errors", None) or (result.get("errors") if isinstance(result, dict) else result))
 
     try:
-        from .web.dashboard_api import add_to_history
+        from .web.dashboard_api import add_to_history, delivery_summary
+        summary = delivery_summary(result)
         add_to_history({
             "filename": filename,
             "timestamp": datetime.now().isoformat(),
             "size_bytes": len(pdf_data),
             "source": "Feeder",
             "auto": True,
-            "results": _as_dict(result),
+            **summary,
+            "results": dict(summary),
         })
     except Exception as e:
         logger.debug("Could not add auto-scan to history: %s", e)
