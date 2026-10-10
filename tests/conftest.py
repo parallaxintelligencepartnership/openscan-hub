@@ -19,6 +19,26 @@ _ENV = ("OPENSCAN_BIND", "OPENSCAN_PORT", "OPENSCAN_TOKEN", "OPENSCAN_TRUST_PROX
         "OPENSCAN_ALLOWED_HOSTS", "OPENSCAN_DOCKER")
 
 
+@pytest.fixture(autouse=True)
+def _restore_root_logging():
+    """setup_logging() replaces root handlers; put them back after each test."""
+    import logging
+    root = logging.getLogger()
+    handlers, level = list(root.handlers), root.level
+    yield
+    from openscan import logging_setup
+    for h in list(root.handlers):
+        if h not in handlers:
+            root.removeHandler(h)
+            if h is not logging_setup._ring:
+                h.close()
+    for h in handlers:
+        if h not in root.handlers:
+            root.addHandler(h)
+    root.setLevel(level)
+    logging_setup._handlers.clear()
+
+
 @pytest.fixture
 def config_dir(tmp_path, monkeypatch):
     """An empty config folder used by get_config_dir()."""
