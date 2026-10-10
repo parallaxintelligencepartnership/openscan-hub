@@ -26,18 +26,89 @@ def test_lock_acquire_and_release(config_dir):
     assert not (config_dir / "openscan.lock").exists()
 
 
+class _HealthServer:
+    """A tiny HTTP server answering /api/health with a chosen JSON body."""
+
+    def __init__(self, body):
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        payload = json.dumps(body).encode()
+
+        class H(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200 if self.path == "/api/health" else 404)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *a):
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        self.port = self.server.server_address[1]
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *a):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+def _sleeper():
+    return subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+
+
+def _free_port() -> int:
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
 def test_second_instance_sees_the_first(config_dir):
-    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    child = _sleeper()
     try:
-        (config_dir / "openscan.lock").write_text(json.dumps({"pid": child.pid, "port": 8123}))
-        other = InstanceLock(config_dir).acquire(8020)
-        assert other is not None and other["port"] == 8123
+        with _HealthServer({"status": "ok", "app": "openscanhub", "version": "0.3.0"}) as h:
+            (config_dir / "openscan.lock").write_text(json.dumps({"pid": child.pid, "port": h.port}))
+            other = InstanceLock(config_dir).acquire(8020)
+            assert other is not None and other["port"] == h.port
     finally:
         child.kill()
         child.wait(5)
     # Once that process is gone the lock is stale and can be taken.
     assert not pid_alive(child.pid)
     assert InstanceLock(config_dir).acquire(8020) is None
+
+
+def test_live_pid_that_is_not_openscanhub_is_stale(config_dir):
+    # Windows reuses pids: a lock left by a killed instance can name another
+    # live program. Nothing answers health on the port, so start normally.
+    child = _sleeper()
+    try:
+        (config_dir / "openscan.lock").write_text(
+            json.dumps({"pid": child.pid, "port": _free_port()}))
+        lock = InstanceLock(config_dir)
+        assert lock.acquire(8020) is None
+        assert json.loads((config_dir / "openscan.lock").read_text())["pid"] == os.getpid()
+        lock.release()
+        # Something else answering on the port is not OpenScanHub either.
+        with _HealthServer({"status": "ok", "app": "someone-else"}) as h:
+            (config_dir / "openscan.lock").write_text(
+                json.dumps({"pid": child.pid, "port": h.port}))
+            assert InstanceLock(config_dir).acquire(8020) is None
+    finally:
+        child.kill()
+        child.wait(5)
+
+
+def test_health_identifies_the_app(live_server):
+    data = live_server.get("/api/health").json()
+    assert data["app"] == "openscanhub"
 
 
 def test_own_pid_in_lock_is_stale(config_dir):
@@ -52,17 +123,18 @@ def test_garbage_lock_file_is_ignored(config_dir):
 
 
 def test_second_launch_opens_browser_and_exits_0(config_dir, monkeypatch):
-    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    child = _sleeper()
     opened = []
     monkeypatch.setattr(app_main.webbrowser, "open", lambda url: opened.append(url))
     monkeypatch.setattr(app_main, "create_server", None, raising=False)
     try:
-        (config_dir / "openscan.lock").write_text(json.dumps({"pid": child.pid, "port": 8123}))
-        assert app_main.run([]) == 0
+        with _HealthServer({"status": "ok", "app": "openscanhub", "version": "0.3.0"}) as h:
+            (config_dir / "openscan.lock").write_text(json.dumps({"pid": child.pid, "port": h.port}))
+            assert app_main.run([]) == 0
     finally:
         child.kill()
         child.wait(5)
-    assert opened == ["http://localhost:8123/"]
+    assert opened == [f"http://localhost:{h.port}/"]
 
 
 # --- autostart ----------------------------------------------------------------

@@ -1,19 +1,53 @@
 """Keep one OpenScanHub per user (review A7).
 
 A lock file in the config folder records the pid and port of the running
-instance. A second launch finds a live pid there and opens the browser at the
-running UI instead of starting again.
+instance. A second launch that finds a live pid there asks that port's
+/api/health whether it really is OpenScanHub; only then does it open the
+browser at the running UI instead of starting again. A pid that is alive but
+does not answer as OpenScanHub (pids are reused, especially on Windows) makes
+the lock stale: it is removed and this launch starts.
 """
 
 import json
 import logging
 import os
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 LOCK_NAME = "openscan.lock"
+HEALTH_TIMEOUT = 2.0
+APP_ID = "openscanhub"
+
+
+def _probe_host(bind: str) -> str:
+    if not bind or bind in ("0.0.0.0", "::", "localhost") or bind.startswith("127."):
+        return "127.0.0.1"
+    return f"[{bind}]" if ":" in bind else bind
+
+
+def answers_as_openscanhub(port: int, bind: str = "127.0.0.1",
+                           timeout: float = HEALTH_TIMEOUT) -> bool:
+    """True if http://<bind>:<port>/api/health answers as OpenScanHub."""
+    if not port:
+        return False
+    url = f"http://{_probe_host(bind)}:{int(port)}/api/health"
+    try:
+        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=timeout) as resp:
+            data = json.loads(resp.read(65536).decode("utf-8"))
+    except Exception:
+        return False
+    if not isinstance(data, dict):
+        return False
+    if data.get("app") == APP_ID:
+        return True
+    # Versions before the "app" field: the health payload had these keys.
+    return (data.get("status") == "ok" and isinstance(data.get("version"), str)
+            and "queue_pending" in data)
 
 
 def pid_alive(pid: int) -> bool:
@@ -71,6 +105,17 @@ class InstanceLock:
         except (TypeError, ValueError):
             return None
         if pid == os.getpid() or not pid_alive(pid):
+            return None
+        try:
+            port = int(data.get("port") or 0)
+        except (TypeError, ValueError):
+            port = 0
+        if not answers_as_openscanhub(port, str(data.get("bind") or "127.0.0.1")):
+            logger.info("Removing stale instance lock (pid %s is not OpenScanHub)", pid)
+            try:
+                self.path.unlink()
+            except OSError:
+                pass
             return None
         return data
 

@@ -342,6 +342,7 @@ def api_health(handler, query):
     config = get_config()
     handler._send_json({
         "status": "ok",
+        "app": "openscanhub",
         "version": __version__,
         "scanner_online": scanner_online(config),
         "queue_pending": len(queue_pending()),
