@@ -22,6 +22,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
+from .fileperm import apply_default_mode
+
 logger = logging.getLogger(__name__)
 
 BACKOFF = [60, 5 * 60, 15 * 60, 60 * 60]
@@ -105,6 +107,7 @@ class RetryQueue:
                     f.write(pdf_data)
                     f.flush()
                     os.fsync(f.fileno())
+                    apply_default_mode(f.fileno())
                 os.replace(tmp, path)
                 file_path, owned = str(path), True
             else:

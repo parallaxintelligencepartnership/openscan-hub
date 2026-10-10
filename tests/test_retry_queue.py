@@ -126,3 +126,16 @@ def test_get_queue_uses_config_dir(tmp_path, monkeypatch):
         assert q.state_path == tmp_path / "retry_queue.json"
     finally:
         retry_queue._reset_queue_for_tests()
+
+
+def test_queued_copy_gets_normal_file_mode(tmp_path, clock, monkeypatch):
+    import os
+    import stat
+    if os.name == "nt":
+        return
+    from openscan import fileperm
+    monkeypatch.setattr(fileperm, "_UMASK", 0o022)
+    q = make(tmp_path, clock)
+    q.add(filename="a.pdf", destinations=[("folder", str(tmp_path / "out"))], pdf_data=PDF)
+    [entry] = q.pending()
+    assert stat.S_IMODE(os.stat(entry["file"]).st_mode) == 0o644

@@ -28,6 +28,8 @@ from urllib.request import Request, urlopen
 if TYPE_CHECKING:  # pragma: no cover
     from .config import AppConfig
 
+from .fileperm import apply_default_mode
+
 logger = logging.getLogger(__name__)
 
 # Serializes "pick a free name, then move the file there" across threads
@@ -165,6 +167,7 @@ def save_to_folder(pdf_data: bytes, folder: str, filename: str) -> str:
             f.write(pdf_data)
             f.flush()
             os.fsync(f.fileno())
+            apply_default_mode(f.fileno())
         with _name_lock:
             final = _unique_path(folder_path, os.path.basename(filename))
             os.replace(tmp_name, final)

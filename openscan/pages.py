@@ -13,6 +13,8 @@ from typing import Union
 from PIL import Image, ImageFilter
 from pypdf import PdfReader, PdfWriter
 
+from .fileperm import apply_default_mode
+
 logger = logging.getLogger(__name__)
 
 PdfSource = Union[str, os.PathLike, bytes]
@@ -184,6 +186,7 @@ def drop_blank_pages(pdf_path, threshold: float = 0.995) -> int:
         try:
             with os.fdopen(fd, "wb") as f:
                 f.write(data)
+                apply_default_mode(f.fileno())
             os.replace(tmp, path)
         except BaseException:
             try:

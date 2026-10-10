@@ -243,3 +243,28 @@ def test_paperless_bad_token_message(tmp_path, queue, paperless):
 def test_delivery_result_serializes():
     r = DeliveryResult(ok=True, saved_paths=["a"])
     assert json.loads(json.dumps(r.to_dict())) == {"ok": True, "saved_paths": ["a"], "errors": [], "queued": False}
+
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
+def test_saved_scan_gets_normal_file_mode(tmp_path, monkeypatch):
+    import stat
+
+    from openscan import fileperm
+    monkeypatch.setattr(fileperm, "_UMASK", 0o022)
+    path = save_to_folder(b"%PDF-1.4\n", str(tmp_path), "scan.pdf")
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o644
+    monkeypatch.setattr(fileperm, "_UMASK", 0o002)
+    path = save_to_folder(b"%PDF-1.4\n", str(tmp_path), "scan.pdf")
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o664
+
+
+def test_file_mode_fix_is_best_effort(tmp_path, monkeypatch):
+    from openscan import fileperm
+
+    def refuse(fd, mode):
+        raise PermissionError("CIFS says no")
+    monkeypatch.setattr(fileperm.os, "fchmod", refuse, raising=False)
+    assert save_to_folder(b"%PDF-1.4\n", str(tmp_path), "scan.pdf")
+    monkeypatch.delattr(fileperm.os, "fchmod", raising=False)
+    assert save_to_folder(b"%PDF-1.4\n", str(tmp_path), "scan.pdf")

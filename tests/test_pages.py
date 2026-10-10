@@ -88,3 +88,16 @@ def test_no_fitz_import_anywhere():
     for f in root.rglob("*.py"):
         text = f.read_text()
         assert "import fitz" not in text, f
+
+
+def test_drop_blank_pages_keeps_normal_file_mode(tmp_path, monkeypatch):
+    import os
+    import stat
+    if os.name == "nt":
+        return
+    from openscan import fileperm
+    monkeypatch.setattr(fileperm, "_UMASK", 0o022)
+    p = tmp_path / "doc.pdf"
+    p.write_bytes(_pdf([_text_page(), _noisy_blank()]))
+    assert pages.drop_blank_pages(p) == 1
+    assert stat.S_IMODE(os.stat(p).st_mode) == 0o644
