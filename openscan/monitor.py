@@ -58,6 +58,7 @@ def _monitor_loop(config: AppConfig) -> None:
         ip=config.scanner.ip,
         port=config.scanner.port,
         protocol=config.scanner.protocol,
+        path=config.scanner.path,
     )
 
     protocol = config.scanner.protocol
