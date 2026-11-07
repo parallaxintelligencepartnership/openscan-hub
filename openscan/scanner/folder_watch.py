@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..config import AppConfig
-from ..output import save_scan_for_config
+from .. import intake
 from .base import (
     ScannerCapabilities,
     ScannerInfo,
@@ -263,10 +263,11 @@ def _process_file(config: AppConfig, file_path: Path) -> None:
         return
     if not data:
         return
-    filename = file_path.name
-    # The queue keeps its own copy, so a failed delivery survives even if the
-    # user tidies up the watched folder.
-    result = save_scan_for_config(config, data, filename)
+    # No source_path: the queue keeps its own copy, so a failed delivery
+    # survives even if the user tidies up the watched folder.
+    result = intake.handle_scan(config, data, source="folder_watch", started_by="folder watch",
+                                filename=file_path.name)
+    filename = result.filename or file_path.name
     if result.ok:
         logger.info("Processed: %s (%d bytes)", filename, len(data))
     else:
@@ -277,7 +278,7 @@ def _process_file(config: AppConfig, file_path: Path) -> None:
         add_to_history({
             "filename": filename,
             "timestamp": datetime.now().isoformat(),
-            "size_bytes": len(data),
+            "size_bytes": result.size_bytes or len(data),
             "source": "folder_watch",
             "auto": True,
             "success": result.ok,

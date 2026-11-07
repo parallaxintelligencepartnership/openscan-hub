@@ -187,7 +187,15 @@ def get(config, profile_id: Optional[str] = None) -> Profile:
             logger.warning("Profile %r not found; using the default profile", profile_id)
             return get(config)
         return from_settings(config)
-    if found.follow_settings:
-        live = from_settings(config, id=found.id, name=found.name)
-        return replace(live, icon=found.icon, split=found.split, show_on_home=found.show_on_home)
-    return found
+    return live(config, found)
+
+
+def live(config, profile: Profile) -> Profile:
+    """`profile` as it applies now: a follow_settings profile is rebuilt
+    from the current Settings sections, keeping id, name, icon, split and
+    show_on_home. Any other profile is returned as is."""
+    if not profile.follow_settings:
+        return profile
+    current = from_settings(config, id=profile.id, name=profile.name)
+    return replace(current, icon=profile.icon, split=profile.split,
+                   show_on_home=profile.show_on_home)

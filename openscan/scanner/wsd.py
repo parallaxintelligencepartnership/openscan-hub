@@ -245,8 +245,8 @@ class WsdScanner(ScannerProtocol):
             scanner, job_id, job_token, multi=settings.source == ScanSource.ADF
         )
         resolution = nearest_resolution(settings.resolution, caps.resolutions)
-        pdf = finish_scan(combine_pages(images, resolution), resolution,
-                          settings.remove_blank_pages)
+        # Blank pages are removed once, by the profile's processing in intake.
+        pdf = finish_scan(combine_pages(images, resolution), resolution)
         logger.info("WSD scan complete: %d image(s), %d bytes", len(images), len(pdf))
         return pdf
 

@@ -10,7 +10,7 @@ from typing import Any, Optional
 from .. import __version__
 from .. import multipage
 from ..config import AppConfig, config_dir_writable
-from ..output import generate_filename, save_scan_for_config, written_name
+from .. import intake
 from ..scanner.base import (
     ScannerInfo, ScanSettings, ScanSource, release_scan, scan_lock, try_acquire_scan,
 )
@@ -230,12 +230,22 @@ def execute_scan(config: AppConfig, source: ScanSource, resolution: Optional[int
     return _impl(config.scanner.protocol).scan(_scanner_info(config), settings)
 
 
-def save_document(config: AppConfig, pdf_data: bytes, filename: str) -> dict:
-    """Deliver to every enabled destination. Returns delivery_summary() plus
-    "filename", the name actually written (it can differ after a collision)."""
-    summary = delivery_summary(save_scan_for_config(config, pdf_data, filename))
-    summary["filename"] = written_name(summary["saved_paths"], filename)
+def save_document(config: AppConfig, pdf_data: bytes, source: str = "flatbed",
+                  started_by: str = "web") -> dict:
+    """Process, name and deliver through intake.handle_scan. Returns
+    delivery_summary() plus "filename" (the name actually written),
+    "size_bytes", "page_count" and "warnings"."""
+    result = intake.handle_scan(config, pdf_data, source=source, started_by=started_by)
+    summary = delivery_summary(result)
+    summary["filename"] = getattr(result, "filename", "") or "scan.pdf"
+    summary["size_bytes"] = getattr(result, "size_bytes", 0) or len(pdf_data)
+    summary["page_count"] = getattr(result, "page_count", 0)
+    summary["warnings"] = list(getattr(result, "warnings", []) or [])
     return summary
+
+
+def _source_id(source: ScanSource) -> str:
+    return "adf" if source == ScanSource.ADF else "flatbed"
 
 
 def _history_entry(summary: dict, size: int, source: str, **extra) -> dict:
@@ -270,7 +280,8 @@ def scan_message(summary: dict, filename: str) -> str:
     return f"Scanned {filename}, but saving failed: {detail}"
 
 
-def run_scan(source: ScanSource, config: Optional[AppConfig] = None) -> dict:
+def run_scan(source: ScanSource, config: Optional[AppConfig] = None,
+             started_by: str = "web") -> dict:
     """Scan and deliver one document. Raises ScannerBusy if another scan holds the lock."""
     config = config or get_config()
     if scanner_mode(config) != "scanner":
@@ -282,20 +293,18 @@ def run_scan(source: ScanSource, config: Optional[AppConfig] = None) -> dict:
         pdf_data = multipage.ensure_pdf(raw, resolution=config.scan.resolution)
     finally:
         release_scan()
-    filename = generate_filename(config.output.filename_pattern)
-    summary = save_document(config, pdf_data, filename)
-    entry = _history_entry(summary, len(pdf_data), source.value)
+    summary = save_document(config, pdf_data, _source_id(source), started_by)
+    entry = _history_entry(summary, summary["size_bytes"], source.value)
     add_to_history(entry)
     return {
         "success": summary["ok"],
-        "size_bytes": len(pdf_data),
         "message": scan_message(summary, summary["filename"]),
         **summary,
         "results": entry["results"],
     }
 
 
-def start_scan_async(source: ScanSource, wait: float = 5.0) -> bool:
+def start_scan_async(source: ScanSource, wait: float = 5.0, started_by: str = "web") -> bool:
     """Start a scan on a worker thread. Returns False if the scanner is busy.
 
     The worker takes the lock itself (an RLock can only be released by its owner)
@@ -319,9 +328,8 @@ def start_scan_async(source: ScanSource, wait: float = 5.0) -> bool:
                 pdf_data = multipage.ensure_pdf(raw, resolution=config.scan.resolution)
             finally:
                 release_scan()
-            filename = generate_filename(config.output.filename_pattern)
-            summary = save_document(config, pdf_data, filename)
-            add_to_history(_history_entry(summary, len(pdf_data), source.value))
+            summary = save_document(config, pdf_data, _source_id(source), started_by)
+            add_to_history(_history_entry(summary, summary["size_bytes"], source.value))
             if not summary["ok"]:
                 logger.warning(scan_message(summary, summary["filename"]))
         except Exception as e:
@@ -408,7 +416,7 @@ def api_scan(handler, query):
     body = handler.read_json_body()
     source = parse_source(body.get("source", "flatbed"))
     try:
-        result = run_scan(source)
+        result = run_scan(source, started_by=f"web {handler.peer_ip()}")
     except ScannerBusy:
         handler._send_json({"success": False, "error": BUSY_MESSAGE}, status=409)
         return
@@ -506,12 +514,13 @@ def api_multipage_save(handler, query):
     if not session.pages:
         raise BadRequest("No pages to save")
     config = get_config()
-    page_count = len(session.pages)
-    pdf_data = multipage.merge_pages(session_id, remove_blank_pages=config.scan.remove_blank_pages)
-    page_count = _page_count(pdf_data, page_count)
-    filename = generate_filename(config.output.filename_pattern)
-    summary = save_document(config, pdf_data, filename)
-    entry = _history_entry(summary, len(pdf_data), session.source.value, page_count=page_count)
+    # Blank pages are removed once, by the profile's processing in intake.
+    pdf_data = multipage.merge_pages(session_id)
+    summary = save_document(config, pdf_data, _source_id(session.source),
+                            f"web {handler.peer_ip()}")
+    page_count = summary["page_count"] or _page_count(pdf_data, len(session.pages))
+    entry = _history_entry(summary, summary["size_bytes"], session.source.value,
+                           page_count=page_count)
     add_to_history(entry)
     # The pages are in the saved, queued or failed file now; on a hard failure
     # keep the session so the user can try again.
@@ -519,10 +528,9 @@ def api_multipage_save(handler, query):
         multipage.delete_session(session_id)
     handler._send_json({
         "success": summary["ok"],
-        "page_count": page_count,
-        "size_bytes": len(pdf_data),
         "message": scan_message(summary, summary["filename"]),
         **summary,
+        "page_count": page_count,
         "results": entry["results"],
     })
 

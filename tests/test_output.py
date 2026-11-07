@@ -279,8 +279,14 @@ def test_written_name_ignores_paperless_urls():
 
 
 def test_dashboard_history_name_with_paperless_only(monkeypatch):
+    from openscan import destinations
+    from openscan.config import AppConfig
     from openscan.web import dashboard_api
-    monkeypatch.setattr(dashboard_api, "save_scan_for_config", lambda cfg, data, name: DeliveryResult(
-        ok=True, saved_paths=["http://pl:8000/documents/5/details"]))
-    summary = dashboard_api.save_document(None, b"%PDF", "scan_001.pdf")
+    monkeypatch.setattr(destinations, "deliver_one",
+                        lambda *a: ("http://pl:8000/documents/5/details", True))
+    cfg = AppConfig()
+    cfg.output.filename_pattern = "scan_{n}"
+    cfg.paperless.enabled, cfg.paperless.mode = True, "api"
+    cfg.paperless.api_url, cfg.paperless.api_token = "http://pl:8000", "t"
+    summary = dashboard_api.save_document(cfg, b"%PDF")
     assert summary["filename"] == "scan_001.pdf"

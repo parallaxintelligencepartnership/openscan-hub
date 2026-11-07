@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Optional
 
 from .config import AppConfig
-from .output import generate_filename, save_scan_for_config, written_name
+from . import intake
 from .scanner.base import (
     AdfState,
     ScannerInfo,
@@ -250,16 +250,16 @@ def _auto_scan_pages(config: AppConfig, scanner_info: ScannerInfo, scanner_impl)
 
 def _deliver_auto_scan(config: AppConfig, pdf_data: bytes) -> None:
     """Save a feeder scan and add it to the history. Needs no scanner lock."""
-    filename = generate_filename(config.output.filename_pattern)
     try:
-        result = save_scan_for_config(config, pdf_data, filename)
+        result = intake.handle_scan(config, pdf_data, source="adf", started_by="feeder monitor")
     except Exception as e:
-        logger.error("Auto-scan %s could not be saved: %s", filename, e)
+        logger.error("Auto-scan could not be saved: %s", e)
         return
 
-    filename = written_name(getattr(result, "saved_paths", None), filename)
+    filename = getattr(result, "filename", "") or "scan"
+    size = getattr(result, "size_bytes", 0) or len(pdf_data)
     if _delivery_ok(result):
-        logger.info("Auto-scan saved: %s (%d bytes)", filename, len(pdf_data))
+        logger.info("Auto-scan saved: %s (%d bytes)", filename, size)
     else:
         logger.error("Auto-scan %s was not delivered everywhere: %s", filename,
                      getattr(result, "errors", None) or (result.get("errors") if isinstance(result, dict) else result))
@@ -270,7 +270,7 @@ def _deliver_auto_scan(config: AppConfig, pdf_data: bytes) -> None:
         add_to_history({
             "filename": filename,
             "timestamp": datetime.now().isoformat(),
-            "size_bytes": len(pdf_data),
+            "size_bytes": size,
             "source": "Feeder",
             "auto": True,
             **summary,

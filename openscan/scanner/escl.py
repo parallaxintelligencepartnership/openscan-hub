@@ -314,7 +314,7 @@ class EsclScanner(ScannerProtocol):
 
         resolution = nearest_resolution(settings.resolution, caps.resolutions)
         pdf = combine_pages(documents, resolution)
-        pdf = finish_scan(pdf, resolution, settings.remove_blank_pages)
+        pdf = finish_scan(pdf, resolution)  # blank pages: removed once, in intake
         logger.info("Scan complete: %d document(s), %d bytes", len(documents), len(pdf))
         return pdf
 

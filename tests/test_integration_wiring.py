@@ -1,4 +1,4 @@
-"""Cross-lane wiring: dashboard and monitor deliver through save_scan_for_config,
+"""Cross-lane wiring: dashboard and monitor deliver through intake.handle_scan,
 history entries share one shape, multipage uses scan_page and blank removal."""
 
 import json
@@ -11,7 +11,7 @@ from conftest import TOKEN
 from PIL import Image, ImageDraw
 from pypdf import PdfReader
 
-from openscan import monitor, multipage, output, pages
+from openscan import destinations, intake, monitor, multipage, output, pages
 from openscan.config import AppConfig
 from openscan.scanner.base import AdfState, ScannerState, ScannerStatus
 from openscan.web import dashboard_api
@@ -44,7 +44,7 @@ def test_dashboard_scan_saves_real_pdf_and_reports_saved_name(live_server, fake_
     os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, "scan_test.pdf"), "wb") as f:
         f.write(b"existing")
-    monkeypatch.setattr(dashboard_api, "generate_filename", lambda pattern, *a, **k: "scan_test.pdf")
+    app_config.output.filename_pattern = "scan_test"  # the name rule gives scan_test.pdf
 
     r = live_server.post("/api/scan", {"source": "flatbed"}, token=TOKEN)
     assert r.status == 200
@@ -64,16 +64,20 @@ def test_dashboard_scan_saves_real_pdf_and_reports_saved_name(live_server, fake_
 
 def test_dashboard_delivery_uses_every_paperless_option(app_config, monkeypatch):
     seen = {}
-    monkeypatch.setattr(output, "save_scan",
-                        lambda **kw: seen.update(kw) or output.DeliveryResult(ok=True, saved_paths=["/x/a.pdf"]))
+
+    def deliver_one(type_, pdf, filename, options):
+        seen[type_] = options
+        return f"/x/{filename}", True
+    monkeypatch.setattr(destinations, "deliver_one", deliver_one)
     p = app_config.paperless
     p.enabled, p.mode, p.api_url, p.api_token = True, "api", "http://paperless.invalid", "t"
     p.correspondent, p.document_type, p.keep_local_copy = "Bank", "Statement", False
-    summary = dashboard_api.save_document(app_config, b"%PDF", "a.pdf")
+    summary = dashboard_api.save_document(app_config, b"%PDF")
     assert summary["ok"] is True
-    assert seen["paperless_correspondent"] == "Bank"
-    assert seen["paperless_document_type"] == "Statement"
-    assert seen["keep_local_copy"] is False
+    api = seen["paperless_api"]
+    assert api["correspondent"] == "Bank"
+    assert api["document_type"] == "Statement"
+    assert api["keep_local_copy"] is False and api["token"] == "t"
 
 
 def test_multipage_save_removes_blank_pages_when_asked(live_server, fake_scanner, app_config):
@@ -105,8 +109,8 @@ class _FeederProtocol:
 def test_monitor_failed_delivery_shows_as_not_saved_in_history(monkeypatch, tmp_path):
     fake = _FeederProtocol()
     monkeypatch.setattr(monitor, "_make_impl", lambda proto: fake)
-    monkeypatch.setattr(monitor, "save_scan_for_config",
-                        lambda cfg, pdf, name: output.DeliveryResult(ok=False, errors=["NAS offline"]))
+    monkeypatch.setattr(intake, "handle_scan",
+                        lambda cfg, pdf, **kw: output.DeliveryResult(ok=False, errors=["NAS offline"]))
     cfg = AppConfig()
     cfg.scanner.protocol, cfg.scanner.ip = "escl", "127.0.0.1"
     cfg.output.folder = str(tmp_path)

@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..config import AppConfig, get_config_dir
-from ..output import save_scan_for_config
+from .. import intake
 from .base import (
     ScannerCapabilities,
     ScannerInfo,
@@ -330,24 +330,26 @@ def _process_received_file(config: AppConfig, file_path: Path) -> None:
     filename = file_path.name
     delete = bool(config.ftp_receive.delete_after_routing)
     try:
-        result = save_scan_for_config(config, data, filename, source_path=str(file_path),
-                                      source_owned=delete)
+        result = intake.handle_scan(config, data, source="ftp", started_by="ftp",
+                                    filename=filename, source_path=str(file_path),
+                                    source_owned=delete)
     except Exception as e:  # never lose the staged file on a bug
         logger.exception("Failed to route FTP file %s", filename)
         _add_history(filename, len(data), None, str(e))
         return
 
-    if result.ok:
+    # The staged file can go once delivered, or once the retry queue holds
+    # its own copy (processing changed the bytes).
+    if result.ok or (result.queued and not result.uses_source):
         logger.info("FTP scan routed: %s -> %s", filename, result.saved_paths)
         if delete:
             try:
                 file_path.unlink()
             except OSError:
                 pass
-    else:
-        logger.error("FTP scan %s not fully delivered (%s); kept at %s",
-                     filename, "; ".join(result.errors), file_path)
-    _add_history(filename, len(data), result, None)
+    if not result.ok:
+        logger.error("FTP scan %s not fully delivered (%s)", filename, "; ".join(result.errors))
+    _add_history(result.filename or filename, result.size_bytes or len(data), result, None)
 
 
 def _add_history(filename: str, size: int, result, error: Optional[str]) -> None:

@@ -59,7 +59,7 @@ def setup(monkeypatch, tmp_path):
     fake = FakeProtocol()
     saved = []
     monkeypatch.setattr(monitor, "_make_impl", lambda proto: fake)
-    monkeypatch.setattr(monitor, "save_scan_for_config", lambda cfg, pdf, name: saved.append({"config": cfg, "pdf_data": pdf, "filename": name}) or Delivery(ok=True))
+    monkeypatch.setattr(monitor.intake, "handle_scan", lambda cfg, pdf, **kw: saved.append({"config": cfg, "pdf_data": pdf, **kw}) or Delivery(ok=True))
     monkeypatch.setattr(monitor, "MAX_BACKOFF", 0.2)
     multipage._sessions.clear()
     cfg = AppConfig()
@@ -192,7 +192,7 @@ def test_lifecycle_idempotent_and_disabled(setup):
 
 def test_failed_delivery_is_logged(setup, monkeypatch, caplog):
     fake, saved, cfg = setup
-    monkeypatch.setattr(monitor, "save_scan_for_config", lambda cfg, pdf, name: Delivery(ok=False, errors=["NAS offline"]))
+    monkeypatch.setattr(monitor.intake, "handle_scan", lambda cfg, pdf, **kw: Delivery(ok=False, errors=["NAS offline"]))
     caplog.set_level(logging.ERROR, logger="openscan.monitor")
     monitor.start_monitor(cfg)
     assert _wait_for(lambda: fake.polls >= 2)
@@ -226,7 +226,7 @@ def test_scanner_lock_is_released_before_delivery(setup, monkeypatch):
     fake, saved, cfg = setup
     lock_free_during_delivery = []
 
-    def deliver(cfg_, pdf, name):
+    def deliver(cfg_, pdf, **kw):
         free = []  # ask from another thread: the lock may be reentrant
         t = threading.Thread(target=lambda: free.append(scan_lock.acquire(blocking=False)
                                                         and (scan_lock.release() or True)))
@@ -235,7 +235,7 @@ def test_scanner_lock_is_released_before_delivery(setup, monkeypatch):
         lock_free_during_delivery.append(free[0])
         return Delivery(ok=True)
 
-    monkeypatch.setattr(monitor, "save_scan_for_config", deliver)
+    monkeypatch.setattr(monitor.intake, "handle_scan", deliver)
     monitor.start_monitor(cfg)
     assert _wait_for(lambda: fake.polls >= 2)
     fake.adf = AdfState.LOADED
