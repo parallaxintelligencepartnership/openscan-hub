@@ -405,7 +405,10 @@ def _scan(handler, profile_id: str, body: dict) -> None:
 
 @route("GET", "/api/destinations")
 def api_destinations(handler, query):
-    handler._send_json({"destinations": [cls.describe() for cls in destinations.available()]})
+    # settings_fallback: an empty option uses the value from the Settings page.
+    handler._send_json({"destinations": [
+        dict(cls.describe(), settings_fallback=cls.type in destinations.SETTINGS_FALLBACK_TYPES)
+        for cls in destinations.available()]})
 
 
 @route("POST", "/api/destinations/test")

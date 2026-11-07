@@ -240,3 +240,20 @@ def test_secrets_of_types_not_in_this_build_are_blank(live_server, app_config):
         assert "https://c.example" in text
     opts = live_server.get("/api/profiles/p", token=TOKEN).json()["profile"]["destinations"][1]["options"]
     assert opts["has_api_key"] is True and opts["api_key"] == ""
+
+
+def test_destination_forms_say_which_types_use_settings_values(live_server, app_config):
+    # Review A7: the editor said "Leave blank to use the value from Settings"
+    # for SMB, WebDAV and email, which have no Settings values.
+    from openscan import destinations
+    types = {d["type"]: d for d in live_server.get("/api/destinations", token=TOKEN).json()
+             ["destinations"]}
+    assert types["folder"]["settings_fallback"] is True
+    for t in ("smb", "webdav", "email"):
+        assert types[t]["settings_fallback"] is False
+    app_config.output.folder = "/scans"
+    app_config.paperless.consume_folder = "/consume"
+    app_config.paperless.api_url = "http://p.example"
+    for t in destinations.all_types():
+        assert bool(destinations._legacy_options(t, app_config)) == (
+            t in destinations.SETTINGS_FALLBACK_TYPES), t

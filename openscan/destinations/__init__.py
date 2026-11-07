@@ -125,6 +125,10 @@ def blank_secrets(type_: str, options: dict) -> dict:
 
 # --- options ---------------------------------------------------------------
 
+# Types whose empty options fall back to the old Settings sections.
+SETTINGS_FALLBACK_TYPES = ("folder", "paperless_consume", "paperless_api")
+
+
 def _legacy_options(type_: str, config) -> dict:
     """Options for `type_` taken from the pre-0.4 settings sections."""
     if config is None:

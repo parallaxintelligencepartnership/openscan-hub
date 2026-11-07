@@ -265,7 +265,7 @@ const profileEditor = {
                     <button type="button" class="btn btn-danger btn-small" data-act="remove">Remove</button></div>`;
             }
             const opts = d.options || {};
-            const fields = info.fields.map(f => this.fieldHtml(i, f, opts)).join('');
+            const fields = info.fields.map(f => this.fieldHtml(i, f, opts, !!info.settings_fallback)).join('');
             return `<div class="dest-card" data-index="${i}">
                 <div class="dest-head"><strong>${esc(info.label)}</strong>
                     <span class="row">
@@ -285,10 +285,11 @@ const profileEditor = {
         });
     },
 
-    fieldHtml(i, f, opts) {
+    fieldHtml(i, f, opts, fallback) {
+        // Only some types take an empty value from the Settings page.
         const id = `dest-${i}-${f.key}`;
         const value = opts[f.key] !== undefined ? opts[f.key] : f.default;
-        const blankHint = '<small class="hint">Leave blank to use the value from Settings.</small>';
+        const blankHint = fallback ? '<small class="hint">Leave blank to use the value from Settings.</small>' : '';
         if (f.kind === 'bool') {
             return `<label class="toggle"><input type="checkbox" id="${id}" ${value ? 'checked' : ''}>
                 <span class="slider"></span><span class="label">${esc(f.label)}</span></label>`;
@@ -301,7 +302,7 @@ const profileEditor = {
         if (f.kind === 'password') {
             const stored = opts[`has_${f.key}`];
             return `<div class="form-group"><label for="${id}">${esc(f.label)}</label>
-                <input type="password" id="${id}" autocomplete="new-password" placeholder="${stored ? 'Saved. Leave blank to keep it.' : 'Leave blank to use the value from Settings'}">
+                <input type="password" id="${id}" autocomplete="new-password" placeholder="${stored ? 'Saved. Leave blank to keep it.' : (fallback ? 'Leave blank to use the value from Settings' : '')}">
                 </div>`;
         }
         const text = Array.isArray(value) ? value.join(', ') : (value || '');
