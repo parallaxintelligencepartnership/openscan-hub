@@ -18,6 +18,28 @@ optional extra destination.
 
 Built by [Parallax Intelligence Partnership, LLC](https://parallaxintelligence.ai) and released as free, open-source software.
 
+## Editions
+
+One codebase, two editions. The edition is fixed when the program is built.
+
+| | OpenScanHub (Homelab) | OpenScanHub Office |
+|---|---|---|
+| For | Enthusiasts, hobbyists, homelabs | Offices and small businesses |
+| Home Assistant module | Included, off until you turn it on | Not shipped |
+| Paperless-NGX destination | Included, off until you turn it on | Not shipped |
+| Home Assistant add-on | Yes | No |
+| Scan audit log | Optional, off by default | On by default |
+| Roles | One access token | Admin token and scan token |
+| Outside calls | None | None |
+| Scanning, processing, profiles, names, destinations, phone web app | Yes | Yes |
+
+- Docker Homelab: `ghcr.io/parallaxintelligencepartnership/openscan-hub:<version>` and `:latest`.
+- Docker Office: `ghcr.io/parallaxintelligencepartnership/openscan-hub:<version>-office` and `:office`.
+- Windows: `OpenScanHub.exe` and `OpenScanHub-Office.exe`.
+- The scan token opens only the scan page and the profile buttons. Run `openscan --show-token --scan` to print it.
+
+See [docs/editions.md](docs/editions.md) for the design.
+
 ## Install
 
 Pick one of three ways.
