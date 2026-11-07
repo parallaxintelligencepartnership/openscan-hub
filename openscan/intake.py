@@ -229,7 +229,9 @@ def handle_scan(config, data: bytes, *, source: str, profile: Optional[Profile] 
             context = {"config": config, "profile": profile, "source": source,
                        "started_by": started_by, "now": now,
                        "n": index + 1 if len(docs) > 1 else 1}
-            name = naming.render(profile.name_rule, naming.collect_fields(doc_result, context))
+            # A profile that follows the old Settings keeps the 0.3.2 names.
+            name = naming.render(profile.name_rule, naming.collect_fields(doc_result, context),
+                                 legacy=profile.follow_settings)
 
         # 5. deliver; the queue may retry from the original file only while
         # these are still its bytes.

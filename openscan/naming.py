@@ -106,22 +106,33 @@ def sanitize(name: str, extension: str = EXTENSION, max_length: int = MAX_LENGTH
     return stem + extension
 
 
-def render(template: str, fields: Optional[dict] = None, extension: str = EXTENSION) -> str:
+def render(template: str, fields: Optional[dict] = None, extension: str = EXTENSION, *,
+           legacy: bool = False) -> str:
     """Fill `template` from `fields` and return a safe file name.
 
     Missing base fields get today's values (date, time), 1 (n) or the
     fallback text; any other missing or empty field is the text after "|"
     in the rule, else "unknown".
+
+    `legacy` gives the names of OpenScanHub 0.3.2 for a profile that still
+    follows the old Settings pattern: only the part after the last / or \\
+    of the pattern is used, and a field with no value and no fallback stays
+    as written ({foo}).
     """
     values = base_fields()
     values.update(fields or {})
+    template = template or DEFAULT_RULE
+    if legacy:
+        template = re.split(r"[\\/]", template)[-1] or template
 
     def replace(m: re.Match) -> str:
         key, spec, fallback = m.group(1), m.group(2), m.group(3)
         value = values.get(key)
         if fallback is not None and (value is None or value == ""):
             return fallback
+        if legacy and (value is None or value == ""):
+            return m.group(0)
         return _format(key, value, spec)
 
-    name = _FIELD_RE.sub(replace, template or DEFAULT_RULE)
+    name = _FIELD_RE.sub(replace, template)
     return sanitize(name, extension)

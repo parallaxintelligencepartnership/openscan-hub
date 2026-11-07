@@ -223,3 +223,25 @@ def test_raw_scan_is_queued_for_every_target(cfg, tmp_path, queue):
     [entry] = queue.pending()
     assert entry["destination"] == "folder"
     assert Path(entry["file"]).read_bytes() == b"%PDF-1.4 raw"
+
+
+@pytest.mark.parametrize("pattern,expected", [
+    ("{date}/doc_{n}", "doc_001.pdf"),         # 0.3.2 kept the part after the last /
+    ("inv_{n}_{foo}", "inv_001_{foo}.pdf"),    # 0.3.2 kept unknown fields as written
+    ("scan_{n}_{vendor}", "scan_001_{vendor}.pdf"),
+])
+def test_migrated_profile_keeps_the_032_names(cfg, tmp_path, pattern, expected):
+    # Review A5 (probe p3): zero name drift for upgrading users.
+    from openscan import profiles
+    cfg.output.filename_pattern = pattern
+    profiles.migrate(cfg)
+    assert cfg.profiles[0].follow_settings
+    res = intake.handle_scan(cfg, _pdf(False), source="adf")
+    assert res.ok and res.filename == expected
+    assert (tmp_path / "out" / expected).exists()
+
+
+def test_edited_profile_uses_the_new_name_rules(cfg, tmp_path):
+    p = Profile(id="p", name="P", follow_settings=False, name_rule="inv_{n}_{foo}",
+                destinations=[{"type": "folder", "options": {"folder": str(tmp_path / "out")}}])
+    assert intake.handle_scan(cfg, _pdf(False), source="adf", profile=p).filename == "inv_001_unknown.pdf"

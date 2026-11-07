@@ -40,6 +40,9 @@ and it scans, cleans, reads, names and saves the file.
   drivers no longer remove blank pages.
 - Blank page removal now also applies to files that arrive by FTP or from a
   watched folder, when the option is on. Before, it did not.
+- When blank page removal is on, a picture (for example a JPEG) that arrives
+  by FTP or from a watched folder is saved as a PDF. Before, it was saved
+  unchanged.
 - Every finished scan goes through one function, `intake.handle_scan`.
 - Dependencies: pypdf stays on 6.x (6.21.4) and Pillow stays on 12.x
   (12.3.0). pypdf 7 and Pillow 13 are not part of 0.4.0.
@@ -50,6 +53,10 @@ and it scans, cleans, reads, names and saves the file.
   warning.
 - An Office build ignores Home Assistant and Paperless-NGX settings in an old
   config file and keeps them in the file.
+- The "Default" profile of an old config makes the same file names as 0.3.2,
+  also for a pattern with a folder part or an unknown field. After you edit
+  the profile, it uses the new name rules: `{foo}` becomes `unknown` and `/`
+  becomes `_`.
 
 ## 0.3.2 (2026-11-06)
 
