@@ -82,6 +82,11 @@ under **Vendor names**.
 
 ## Split one batch into several files
 
+> Caution: With **Scan both sides** on, the empty back of a one-sided sheet
+> is a blank page. **At each blank page** then makes one file for each
+> sheet. For one-sided paper, turn off **Scan both sides** or use barcode
+> separator sheets.
+
 1. Open the profile. Set **Split one scan into several files**.
 2. Choose **At each blank page** to split on blank sheets.
 3. Or choose **At each barcode page** to split on `OSH:` QR separator sheets.
@@ -114,4 +119,5 @@ OpenScanHub drops each separator page. The barcode text becomes `{barcode}`.
 
 | Version | Date | Change |
 |---|---|---|
+| 0.4.0 | 2026-11-06 | Add the caution about both sides and blank page splits. |
 | 0.4.0 | 2026-11-06 | First version. |

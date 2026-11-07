@@ -109,4 +109,5 @@ Some mail providers need an app password or OAuth. OpenScanHub supports user nam
 
 | Date | Change |
 |---|---|
+| 2026-11-06 | Say when an input counts a file as handled. |
 | 2026-11-06 | First version. |

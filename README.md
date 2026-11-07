@@ -73,7 +73,7 @@ One codebase, two editions. The build fixes the edition.
 | Home Assistant module and add-on | Included, off by default | Not shipped |
 | Paperless-NGX destination | Included, off by default | Not shipped |
 | Scan audit log | Optional, off by default | On by default |
-| Access tokens | One token | Admin token and scan token |
+| Access tokens | Admin token; a scan token for phones is there if you want it | Admin token and scan token |
 | Outside calls | None | None |
 
 Image name: `ghcr.io/parallaxintelligencepartnership/openscan-hub`.

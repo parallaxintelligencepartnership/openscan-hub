@@ -28,7 +28,7 @@ from the same source.
 | Paperless-NGX destination | Included, off until you turn it on | Not shipped |
 | Home Assistant add-on | Yes | No |
 | Scan audit log | Optional, off by default | On by default |
-| Roles | One access token | Admin token and scan token |
+| Roles | Admin token; a scan token for phones is there if you want it | Admin token and scan token |
 | Outside calls | None | None |
 | Scanning, processing, profiles, names, destinations, phone web app | Yes | Yes |
 

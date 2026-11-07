@@ -45,13 +45,13 @@ The code is not in the image or the EXE. An old config with those settings keeps
 
 1. Use the Office image tag `:0.4.0-office` or `:office`. On Windows, use `OpenScanHub-Office.exe`.
 2. Open the dashboard. Sign in with the admin token.
-3. Print the scan token.
+3. Get the scan token. In Docker, run this command:
 
    ```bash
    docker exec openscan-hub openscan --show-token --scan
    ```
 
-   On Windows, run `openscan --show-token --scan` or use the tray menu.
+   On Windows, open **Settings**, go to **Access**, and press **Show** next to **Scan token**.
 
 > Caution: Give the scan token to staff only. Never give the admin token to staff.
 
@@ -82,10 +82,11 @@ Phones can install the page as an app only over HTTPS. Over plain HTTP, the page
 | The QR code opens `localhost` | You opened the dashboard by `localhost` | Open it by the server's network address. |
 | No Home Assistant or Paperless controls | Office does not ship them | Use the Homelab edition for them. |
 | The audit list is empty | No scan ran yet | Run a scan. |
-| The token is lost | Not saved | Run the show-token command again. |
+| The token is lost | Not saved | Run the show-token command again, or open **Settings** > **Access**. |
 
 ## Revision history
 
 | Version | Date | Change |
 |---|---|---|
+| 0.4.0 | 2026-11-06 | Get the scan token on Windows from Settings. |
 | 0.4.0 | 2026-11-06 | First version. |
