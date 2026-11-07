@@ -146,3 +146,11 @@ def test_phone_editing_routes_are_gone(scan_server, path):
 def test_upload_only_start_is_gone(live_server, app_config):
     app_config.scanner.ip = ""
     assert live_server.post("/api/multipage/start", {"upload_only": True}, token=TOKEN).status == 400
+
+
+def test_phone_script_only_uses_the_feed_routes():
+    from pathlib import Path
+    js = (Path(__file__).resolve().parent.parent / "openscan" / "web" / "static" / "js" / "m.js").read_text()
+    assert "api/feed" in js and "api/feed/next" in js
+    for gone in ("multipage", "reorder", "delete-page", "upload"):
+        assert gone not in js

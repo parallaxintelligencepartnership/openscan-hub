@@ -44,44 +44,22 @@
                 </div>
             </div>
 
-            <h2 class="section">Scan with a profile</h2>
+            <div class="card next-feed hidden" id="next-feed" role="status" aria-live="polite">
+                <div class="next-text">
+                    <strong id="next-text"></strong>
+                    <span class="hint" id="next-count"></span>
+                </div>
+                <button class="btn danger" id="btn-cancel-feed" type="button">Cancel</button>
+            </div>
+
+            <p class="hint hidden" id="monitor-off">Automatic feeder scanning is off. Turn it on in Settings.</p>
+
+            <h2 class="section">Pick a profile, then load the paper</h2>
             <div class="stack" id="profile-buttons"></div>
 
-            <h2 class="section">Several pages, one file</h2>
-            <div class="card">
-                <label for="profile-select">Profile</label>
-                <select id="profile-select"></select>
-                <div class="row">
-                    <button class="btn primary" id="btn-scan-pages" type="button">Scan pages</button>
-                    <label class="btn secondary" for="camera-home">Use camera</label>
-                </div>
-                <input type="file" id="camera-home" class="camera-input" accept="image/*,application/pdf"
-                       capture="environment" multiple>
-            </div>
-        </section>
-
-        <!-- Pages of one document -->
-        <section id="view-session" class="view hidden">
-            <div class="card">
-                <div class="session-head">
-                    <strong id="session-title">Pages</strong>
-                    <span class="hint" id="session-count">0 pages</span>
-                </div>
-                <div class="row">
-                    <button class="btn primary" id="btn-scan-next" type="button">Scan next page</button>
-                    <label class="btn secondary" for="camera-session">Use camera</label>
-                </div>
-                <input type="file" id="camera-session" class="camera-input" accept="image/*,application/pdf"
-                       capture="environment" multiple>
-            </div>
-
-            <ol class="pages" id="page-list" aria-label="Pages, in the order they will be saved"></ol>
-            <p class="hint empty hidden" id="page-empty">No pages yet. Scan a page or use the camera.</p>
-
-            <div class="row sticky">
-                <button class="btn success" id="btn-save" type="button" disabled>Save</button>
-                <button class="btn danger" id="btn-cancel" type="button">Cancel</button>
-            </div>
+            <h2 class="section">Last scans</h2>
+            <ul class="scans" id="last-scans" aria-live="polite"></ul>
+            <p class="hint hidden" id="scans-empty">No scans yet.</p>
         </section>
     </main>
 
