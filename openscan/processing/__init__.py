@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 # Stage modules, imported once. Add one name per new stage module.
 _STAGES = (
-    "blank_pages",
+    "blank_pages", "rotate", "deskew", "crop", "color", "ocr", "compression", "pdfa",
 )
 
 for _name in _STAGES:
