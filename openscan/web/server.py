@@ -8,6 +8,8 @@ Security model (review finding C1):
 - Browsers on the same machine get the cookie on their first page load. Other
   devices sign in once on ``/login``.
 - The Host header is checked against an allowlist (DNS rebinding defense).
+- A second token, ``web.scan_token``, opens only the scan routes in
+  ``SCAN_ROLE_ROUTES``. Every other route answers it with 403.
 - POSTs need ``Content-Type: application/json`` and, if an Origin header is
   present, it must match the Host (CSRF defense).
 """
@@ -46,6 +48,26 @@ PAGES = {
     "/settings": "templates/settings.html",
 }
 LOGIN_PAGE = "templates/login.html"
+
+ADMIN = "admin"
+SCAN = "scan"
+
+# What the scan token may use: (methods, path regex). Everything else is 403.
+SCAN_ROLE_ROUTES = (
+    (("GET",), re.compile(r"^/api/profiles$")),
+    (("POST",), re.compile(r"^/api/profiles/[^/]+/scan$")),
+    (("POST",), re.compile(r"^/api/scan$")),
+    (("GET", "POST"), re.compile(r"^/api/multipage/.+$")),
+    (("GET",), re.compile(r"^/api/status$")),
+    (("GET",), re.compile(r"^/api/health$")),
+    (("GET",), re.compile(r"^/api/edition$")),
+)
+SCAN_ROLE_PAGES = ("/dashboard",)
+SCAN_ROLE_REFUSAL = ("This token can only scan. Use the admin access token for this page.")
+
+
+def scan_role_allows(method: str, path: str) -> bool:
+    return any(method in methods and rx.match(path) for methods, rx in SCAN_ROLE_ROUTES)
 
 _config: Optional[AppConfig] = None
 _config_lock = threading.Lock()
@@ -248,24 +270,29 @@ class RequestHandler(BaseHTTPRequestHandler):
             return False
         return bool(netloc) and netloc == host
 
-    def _cookie_ok(self) -> bool:
+    def _cookie_role(self) -> Optional[str]:
         raw = self.headers.get("Cookie")
         if not raw:
-            return False
+            return None
         try:
             jar = SimpleCookie()
             jar.load(raw)
         except Exception:
-            return False
+            return None
         morsel = jar.get(SESSION_COOKIE)
         if morsel is None:
-            return False
-        return secret_equal(morsel.value, session_value(get_config().web.api_token))
+            return None
+        web = get_config().web
+        if web.api_token and secret_equal(morsel.value, session_value(web.api_token)):
+            return ADMIN
+        if web.scan_token and secret_equal(morsel.value, session_value(web.scan_token)):
+            return SCAN
+        return None
 
-    def token_ok(self, query: Optional[dict] = None) -> bool:
-        token = get_config().web.api_token
-        if not token:
-            return False
+    def _cookie_ok(self) -> bool:
+        return self._cookie_role() == ADMIN
+
+    def _supplied_token(self, query: Optional[dict] = None) -> str:
         supplied = self.headers.get("X-OpenScan-Token")
         if not supplied:
             auth = self.headers.get("Authorization", "")
@@ -273,17 +300,40 @@ class RequestHandler(BaseHTTPRequestHandler):
                 supplied = auth[7:].strip()
         if not supplied and query is not None:
             supplied = (query.get("token") or [""])[0]
-        return bool(supplied) and secret_equal(supplied, token)
+        return supplied or ""
+
+    def token_role(self, query: Optional[dict] = None) -> Optional[str]:
+        supplied = self._supplied_token(query)
+        if not supplied:
+            return None
+        web = get_config().web
+        if web.api_token and secret_equal(supplied, web.api_token):
+            return ADMIN
+        if web.scan_token and secret_equal(supplied, web.scan_token):
+            return SCAN
+        return None
+
+    def token_ok(self, query: Optional[dict] = None) -> bool:
+        return self.token_role(query) == ADMIN
+
+    def role(self, query: Optional[dict] = None, *, cookie: bool = True) -> Optional[str]:
+        """ADMIN, SCAN or None for this request."""
+        if self.is_trusted_proxy():
+            return ADMIN
+        found = self.token_role(query)
+        if found == ADMIN:
+            return ADMIN
+        cookie_found = self._cookie_role() if cookie else None
+        if ADMIN in (found, cookie_found):
+            return ADMIN
+        return found or cookie_found
 
     def _authorized(self, query: dict, rt: Route) -> bool:
-        if self.is_trusted_proxy():
-            return True
-        if self.token_ok(query if rt.query_token else None):
-            return True
-        return rt.cookie and self._cookie_ok()
+        return self.role(query if rt.query_token else None, cookie=rt.cookie) is not None
 
-    def session_cookie_header(self) -> str:
-        value = session_value(get_config().web.api_token)
+    def session_cookie_header(self, role: str = ADMIN) -> str:
+        web = get_config().web
+        value = session_value(web.scan_token if role == SCAN else web.api_token)
         return (f"{SESSION_COOKIE}={value}; Path=/; Max-Age={SESSION_MAX_AGE}; "
                 "HttpOnly; SameSite=Strict")
 
@@ -341,9 +391,17 @@ class RequestHandler(BaseHTTPRequestHandler):
         if method == "POST" and not trusted and not self._origin_ok():
             self._send_error(403, "Cross-site request refused")
             return
-        if not rt.public and not self._authorized(query, rt):
-            self._send_error(401, "Sign in required")
-            return
+        if not rt.public:
+            role = self.role(query if rt.query_token else None, cookie=rt.cookie)
+            if role is None:
+                self._send_error(401, "Sign in required")
+                return
+            if role == SCAN and not scan_role_allows(method, path):
+                self._send_error(403, SCAN_ROLE_REFUSAL)
+                return
+            self.request_role = role
+        else:
+            self.request_role = None
         if method == "POST" and rt.json_only:
             ctype = (self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
             if ctype != "application/json":
@@ -363,7 +421,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def _serve_page_or_static(self, path: str, query: dict):
         if path == "/login":
-            if self.may_auto_sign_in() or self.is_trusted_proxy() or self._cookie_ok():
+            if self.may_auto_sign_in() or self.is_trusted_proxy() or self._cookie_role():
                 self._issue_cookie_if_needed()
                 self._redirect("dashboard")
                 return
@@ -371,12 +429,17 @@ class RequestHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/" or path in PAGES:
-            if not (self.is_trusted_proxy() or self._cookie_ok() or self.token_ok()):
+            role = self.role()
+            if role is None:
                 if self.may_auto_sign_in():
                     self._extra_headers.append(("Set-Cookie", self.session_cookie_header()))
+                    role = ADMIN
                 else:
                     self._redirect("login")
                     return
+            if role == SCAN and path not in SCAN_ROLE_PAGES:
+                self._redirect("dashboard")
+                return
             if path == "/":
                 cfg = get_config()
                 self._redirect("dashboard" if cfg.wizard_completed else "wizard")
@@ -401,7 +464,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         self._serve_file(file_path)
 
     def _issue_cookie_if_needed(self):
-        if not self._cookie_ok():
+        if self._cookie_role() is None:
             self._extra_headers.append(("Set-Cookie", self.session_cookie_header()))
 
     # --- responses -------------------------------------------------------
@@ -506,6 +569,7 @@ def load_routes() -> None:
     from . import wizard_api  # noqa: F401
     from . import dashboard_api  # noqa: F401
     from . import settings_api  # noqa: F401
+    from . import audit_api  # noqa: F401
     from .. import edition
     if edition.has("homeassistant"):
         try:

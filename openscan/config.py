@@ -78,6 +78,7 @@ class WebConfig:
     bind: str = "127.0.0.1"  # "0.0.0.0" for LAN access
     port: int = 8020
     api_token: str = ""  # generated on first load
+    scan_token: str = ""  # generated on first load; opens only the scan routes
     advertise_mdns: bool = True
 
 
@@ -207,18 +208,19 @@ def config_dir_remedy(config_dir: Optional[Path] = None) -> str:
     return "give this user permission to write to %s" % d
 
 
-def read_saved_token(path: Optional[Path] = None) -> str:
+def read_saved_token(path: Optional[Path] = None, scan: bool = False) -> str:
     """The access token as the running app sees it, without generating one.
 
     OPENSCAN_TOKEN wins, as it does in load_config; otherwise the token saved
-    in the config file. Returns "" if there is none."""
+    in the config file. Returns "" if there is none. `scan=True` reads the
+    scan token (web.scan_token), which has no environment override."""
     env = os.environ.get("OPENSCAN_TOKEN", "")
-    if env:
+    if env and not scan:
         return env
     config_path = path or get_config_path()
     try:
         data = json.loads(config_path.read_text(encoding="utf-8"))
-        token = data["web"]["api_token"]
+        token = data["web"]["scan_token" if scan else "api_token"]
     except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError):
         return ""
     return token if isinstance(token, str) else ""
@@ -248,6 +250,9 @@ def load_config(path: Optional[Path] = None) -> AppConfig:
     config.__dict__.pop("_had_profiles", None)
     if not config.web.api_token:
         config.web.api_token = secrets.token_hex(16)
+        generated = True
+    if not config.web.scan_token:
+        config.web.scan_token = secrets.token_hex(16)
         generated = True
     if config.ftp_receive.password in ("", "scan"):
         config.ftp_receive.password = secrets.token_urlsafe(12)

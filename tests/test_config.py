@@ -19,6 +19,7 @@ def test_round_trip(tmp_path):
     cfg = AppConfig()
     cfg.web.port = 9000
     cfg.web.api_token = "a" * 32
+    cfg.web.scan_token = "b" * 32
     cfg.ftp_receive.password = "secretpw"
     cfg.paperless.tags = ["x", "y"]
     cfg.scan.color_mode = "gray"
