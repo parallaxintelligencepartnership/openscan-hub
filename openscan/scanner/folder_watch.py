@@ -148,6 +148,17 @@ def check_watch_folder(config: AppConfig) -> Optional[str]:
             "The watched folder cannot be the Paperless consume folder or inside it "
             "(or contain it). Pick a different folder."
         )
+    for profile in getattr(config, "profiles", None) or []:
+        for dest in getattr(profile, "destinations", None) or []:
+            if not isinstance(dest, dict) or dest.get("type") not in ("folder", "paperless_consume"):
+                continue
+            folder = str((dest.get("options") or {}).get("folder") or "")
+            if folder and _overlaps(watch, folder):
+                return (
+                    f"The watched folder cannot be the folder that the profile {profile.name} "
+                    "saves to, or inside it (or contain it). Otherwise every saved scan "
+                    "would be picked up again. Pick a different folder."
+                )
     return None
 
 

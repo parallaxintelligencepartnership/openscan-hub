@@ -145,3 +145,15 @@ def test_file_neither_delivered_nor_queued_is_tried_again(tmp_path, monkeypatch)
     time.sleep(0.3)
     assert sorted(p.name for p in out.iterdir()) == ["late.pdf"]
     assert len(calls) == 3
+
+
+def test_refuses_overlap_with_a_profile_folder(tmp_path):
+    # Review A9: a profile folder destination inside the watched folder loops.
+    from openscan.profiles import Profile
+    watch = tmp_path / "in"
+    cfg = cfg_for(tmp_path, watch, tmp_path / "out")
+    cfg.profiles = [Profile(id="p", name="Archive", follow_settings=False, destinations=[
+        {"type": "folder", "options": {"folder": str(watch / "done")}}])]
+    reason = folder_watch.check_watch_folder(cfg)
+    assert reason and "Archive" in reason
+    assert start_folder_watcher(cfg) is False
