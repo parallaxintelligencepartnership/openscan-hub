@@ -37,6 +37,8 @@ logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
 
+mimetypes.add_type("application/manifest+json", ".webmanifest")
+
 SESSION_COOKIE = "openscan_session"
 SESSION_MAX_AGE = 30 * 24 * 3600
 MAX_BODY_BYTES = 1024 * 1024
@@ -47,6 +49,7 @@ PAGES = {
     "/wizard": "templates/wizard.html",
     "/settings": "templates/settings.html",
     "/profiles": "templates/profiles.html",
+    "/m": "templates/m.html",  # the phone page; it asks for the token itself
 }
 LOGIN_PAGE = "templates/login.html"
 
@@ -63,7 +66,7 @@ SCAN_ROLE_ROUTES = (
     (("GET",), re.compile(r"^/api/health$")),
     (("GET",), re.compile(r"^/api/edition$")),
 )
-SCAN_ROLE_PAGES = ("/dashboard",)
+SCAN_ROLE_PAGES = ("/dashboard", "/m")
 SCAN_ROLE_REFUSAL = ("This token can only scan. Use the admin access token for this page.")
 
 
@@ -435,6 +438,10 @@ class RequestHandler(BaseHTTPRequestHandler):
                 if self.may_auto_sign_in():
                     self._extra_headers.append(("Set-Cookie", self.session_cookie_header()))
                     role = ADMIN
+                elif path == "/m":
+                    # The phone page holds no data. It shows its own sign-in form.
+                    self._serve_file(STATIC_DIR / PAGES[path])
+                    return
                 else:
                     self._redirect("login")
                     return
