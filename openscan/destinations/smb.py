@@ -19,7 +19,7 @@ from .folder import _COUNTER_RE
 logger = logging.getLogger(__name__)
 
 _TIMEOUT = 15
-_lock = threading.Lock()  # one SMB operation at a time: the session cache is global
+_lock = threading.Lock()  # one SMB destination operation at a time
 
 
 def _clean_parts(path: str) -> list[str]:
@@ -99,24 +99,29 @@ def _smb_error(e: Exception, s: dict) -> str:
 
 
 def _kw(s: dict) -> dict:
-    """Connection arguments every smbclient call needs (the session cache is keyed by them)."""
+    """Connection arguments every smbclient call needs, with this operation's
+    own connection cache."""
     return {"username": s["username"], "password": s["password"], "port": s["port"],
-            "connection_timeout": _TIMEOUT}
+            "connection_timeout": _TIMEOUT, "connection_cache": s.get("cache")}
 
 
 def _session(s: dict):
     import smbclient
-    # smbclient caches sessions by server and port, not by user. A fresh session
-    # per operation means new credentials always count and nothing stays open.
-    smbclient.reset_connection_cache()
+    # A private connection cache per operation: new credentials always count,
+    # nothing stays open, and the SMB poll's sessions in the global cache are
+    # not touched.
+    s["cache"] = {}
     smbclient.register_session(s["server"], **_kw(s))
     return smbclient
 
 
-def _close() -> None:
+def _close(s: dict) -> None:
+    cache = s.get("cache")
+    if cache is None:
+        return
     try:
         import smbclient
-        smbclient.reset_connection_cache()
+        smbclient.reset_connection_cache(connection_cache=cache)
     except Exception:  # closing must never hide the real result
         pass
 
@@ -173,7 +178,7 @@ class SmbDestination(Destination):
                          _status_hex(e))
             raise DeliveryError(_smb_error(e, s)) from e
         finally:
-            _close()
+            _close(s)
         location = _unc(s, name)
         logger.info("Saved scan to %s (%d bytes)", location, len(pdf))
         return location, True
@@ -201,5 +206,5 @@ class SmbDestination(Destination):
                          _status_hex(e))
             return {"ok": False, "message": _smb_error(e, s)}
         finally:
-            _close()
+            _close(s)
         return {"ok": True, "message": f"OpenScanHub can write to \\\\{s['server']}\\{s['share']}."}

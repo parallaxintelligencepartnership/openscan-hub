@@ -293,3 +293,23 @@ def test_document_neither_delivered_nor_queued_is_not_marked_handled(box, monkey
     state = {}
     polls(cfg, 3, {}, state)
     assert not state and (folder / "h.pdf").exists()
+
+
+def test_smb_destination_does_not_close_the_poll_session(box, samba, tmp_path):
+    # Review probe p5 (A1): the SMB destination reset the global session
+    # cache, so each poll delivered one file and the move after it failed.
+    from openscan.profiles import Profile
+    cfg, folder = box
+    cfg.profiles = [Profile(id="p", name="P", follow_settings=False, destinations=[
+        {"type": "smb", "options": {"server": f"127.0.0.1:{samba['port']}", "share": "scans",
+                                    "path": "out-a1", "username": samba["user"],
+                                    "password": PASSWORD}}])]
+    cfg.default_profile_id = "p"
+    out = samba["share"] / "out-a1"
+    shutil.rmtree(out, ignore_errors=True)
+    (folder / "a.pdf").write_bytes(PDF)
+    (folder / "b.pdf").write_bytes(PDF + b"b")
+    seen, state = {}, {}
+    polls(cfg, 2, seen, state)  # first sighting, then deliver both
+    assert sorted(p.name for p in out.iterdir()) == ["a.pdf", "b.pdf"]
+    assert sorted(p.name for p in folder.iterdir()) == ["processed"]
