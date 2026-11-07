@@ -197,6 +197,17 @@ def deliver_all(pdf: bytes, filename: str, targets: list[dict], *,
             if cls is not None:
                 failures.append((type_, cls.target(options), cls.public_options(options)))
             continue
+        except Exception as e:
+            # A bug or an unexpected library error in one destination must not
+            # lose the scan or stop the next destination. The text of the
+            # error can hold a secret, so only its class name is logged.
+            label = cls.label if cls is not None else type_
+            logger.error("Destination %s failed with an unexpected %s", type_, type(e).__name__)
+            result.errors.append(f"{label}: the delivery failed with an unexpected error "
+                                 f"({type(e).__name__}). OpenScanHub keeps the scan and tries again.")
+            if cls is not None:
+                failures.append((type_, cls.target(options), cls.public_options(options)))
+            continue
         result.saved_paths.append(location)
         if type_ == "folder":
             local_paths.append(location)

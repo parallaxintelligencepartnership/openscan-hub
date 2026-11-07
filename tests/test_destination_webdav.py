@@ -172,3 +172,11 @@ def test_self_signed_certificate(tmp_path):
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def test_bad_port_in_address_fails_plainly():
+    # http.client raises InvalidURL (a ValueError) for a port that is not a number.
+    with pytest.raises(DeliveryError, match="not valid"):
+        WebdavDestination().deliver(PDF, "a.pdf", {"url": "https://nas.example:dav/remote.php"})
+    r = WebdavDestination().test({"url": "https://nas.example:dav/remote.php"})
+    assert not r["ok"] and "not valid" in r["message"]

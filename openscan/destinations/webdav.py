@@ -7,6 +7,7 @@ allows a self-signed one. The password is never logged.
 from __future__ import annotations
 
 import base64
+import http.client
 import logging
 import os
 import posixpath
@@ -90,6 +91,16 @@ def _error(e: Exception, base: str) -> str:
     return f"Could not reach {host}. Check that it is online and the address is correct."
 
 
+def _bad_answer(e: Exception, base: str) -> str:
+    try:
+        host = urlsplit(base).netloc
+    except ValueError:
+        host = "the server"
+    if isinstance(e, http.client.HTTPException):
+        return f"{host} sent an answer that is not valid WebDAV. Check the address."
+    return "The WebDAV address is not valid. Check the server name and the port number."
+
+
 def _http_message(code: int, host: str) -> str:
     if code == 401:
         return f"{host} rejected the user name or password."
@@ -164,6 +175,9 @@ class WebdavDestination(Destination):
         except (URLError, OSError) as e:
             logger.error("WebDAV delivery to %s failed: %s", urlsplit(base).netloc, type(e).__name__)
             raise DeliveryError(_error(e, base)) from e
+        except (ValueError, http.client.HTTPException) as e:
+            logger.error("WebDAV delivery to %s failed: %s", urlsplit(base).netloc, type(e).__name__)
+            raise DeliveryError(_bad_answer(e, base)) from None
         logger.info("Uploaded scan to %s (%d bytes)", urlsplit(url).netloc, len(pdf))
         return posixpath.join(base, *[quote(p, safe="") for p in [*parts, name]]), True
 
@@ -185,3 +199,5 @@ class WebdavDestination(Destination):
             return {"ok": False, "message": str(e)}
         except (URLError, OSError) as e:
             return {"ok": False, "message": _error(e, str(options.get("url") or ""))}
+        except (ValueError, http.client.HTTPException) as e:
+            return {"ok": False, "message": _bad_answer(e, str(options.get("url") or ""))}

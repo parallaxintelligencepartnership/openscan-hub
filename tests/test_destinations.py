@@ -124,3 +124,36 @@ def test_retry_fills_the_token_from_config():
     entry = {"destination": "paperless_api", "target": "http://pl", "paperless": {"tags": ["A"]}}
     opts = retry_queue.entry_options(entry, cfg)
     assert opts["token"] == "from-settings" and opts["url"] == "http://pl" and opts["tags"] == ["A"]
+
+
+def test_any_destination_error_is_a_queued_failure(tmp_path, queue, registry, caplog):
+    """A destination that raises something other than DeliveryError must not
+    lose the scan or stop the destinations after it."""
+    import logging
+
+    @register
+    class Broken(Destination):
+        type = "broken_test"
+        label = "Broken"
+        target_key = "where"
+        FIELDS = [destinations.option_field("where", "Where"),
+                  destinations.option_field("password", "Password", "password")]
+
+        def deliver(self, pdf, filename, options):
+            raise RuntimeError("boom with secret " + options["password"])
+
+    caplog.set_level(logging.DEBUG)
+    targets = [{"type": "broken_test", "options": {"where": "x", "password": "hidden-pw-9"}},
+               {"type": "folder", "options": {"folder": str(tmp_path / "out")}}]
+    res = destinations.deliver_all(PDF, "a.pdf", targets)
+    assert (tmp_path / "out" / "a.pdf").read_bytes() == PDF  # later target still tried
+    assert res.ok is False and res.queued is True
+    assert [e["destination"] for e in queue.pending()] == ["broken_test"]
+    assert "Broken" in res.errors[0] and "RuntimeError" in res.errors[0]
+    raw = (tmp_path / "q" / "retry_queue.json").read_text()
+    assert "hidden-pw-9" not in " ".join(res.errors) + caplog.text + raw
+
+
+def test_folder_path_with_nul_fails_plainly(tmp_path):
+    with pytest.raises(DeliveryError, match="not valid"):
+        destinations.deliver_one("folder", PDF, "a.pdf", {"folder": str(tmp_path) + "/a\0b"})

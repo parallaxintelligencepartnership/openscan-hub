@@ -151,3 +151,14 @@ def test_starttls_refused_gives_plain_message(sink):
     # The sink offers no STARTTLS, so the secure setting must fail with a plain message.
     with pytest.raises(DeliveryError, match="security"):
         EmailDestination().deliver(PDF, "a.pdf", opts(sink, security="starttls"))
+
+
+def test_non_ascii_password_fails_plainly(sink, caplog):
+    # smtplib raises UnicodeEncodeError in AUTH PLAIN; the retry queue needs a DeliveryError.
+    caplog.set_level(logging.DEBUG)
+    with pytest.raises(DeliveryError) as e:
+        EmailDestination().deliver(PDF, "a.pdf", opts(sink, password="pässwort-77"))
+    assert "plain ASCII" in str(e.value)
+    assert "pässwort-77" not in str(e.value) + caplog.text
+    r = EmailDestination().test(opts(sink, password="pässwort-77"))
+    assert not r["ok"] and "plain ASCII" in r["message"]

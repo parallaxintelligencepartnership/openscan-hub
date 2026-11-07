@@ -98,6 +98,15 @@ def _smtp_error(e: Exception, s: dict) -> str:
     return f"Could not reach the mail server {host}. Check the name and the port."
 
 
+def _value_error(e: ValueError, s: dict) -> str:
+    """Plain text for a ValueError from smtplib. Never includes the error
+    text, which can hold the password."""
+    if isinstance(e, UnicodeError):
+        return (f"The mail server {s['host']} cannot take a character in the user name or "
+                "password. Use only plain ASCII letters, digits and symbols, or an app password.")
+    return f"The mail settings for {s['host']} are not valid. Check the server, port and addresses."
+
+
 def _subject(template: str, filename: str) -> str:
     class _Safe(dict):
         def __missing__(self, key):
@@ -165,6 +174,9 @@ class EmailDestination(Destination):
         except (smtplib.SMTPException, OSError) as e:
             logger.error("Email delivery via %s failed: %s", s["host"], type(e).__name__)
             raise DeliveryError(_smtp_error(e, s)) from e
+        except ValueError as e:  # UnicodeError too: a non-ASCII password in AUTH
+            logger.error("Email delivery via %s failed: %s", s["host"], type(e).__name__)
+            raise DeliveryError(_value_error(e, s)) from None
         logger.info("Emailed %s (%d bytes) to %d recipient(s)", filename, len(pdf), len(to))
         return "mailto:" + ",".join(to), True
 
@@ -176,6 +188,8 @@ class EmailDestination(Destination):
             return {"ok": False, "message": str(e)}
         except (smtplib.SMTPException, OSError) as e:
             return {"ok": False, "message": _smtp_error(e, _safe_host(options))}
+        except ValueError as e:
+            return {"ok": False, "message": _value_error(e, _safe_host(options))}
         try:
             smtp.noop()
             smtp.quit()

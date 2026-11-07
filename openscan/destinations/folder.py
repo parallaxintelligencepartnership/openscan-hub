@@ -105,6 +105,9 @@ def save_to_folder(pdf_data: bytes, folder: str, filename: str) -> str:
         msg = folder_error_message(folder, e)
         logger.error("Failed to save to %s: %s", folder, e)
         raise DeliveryError(msg) from e
+    except ValueError as e:  # for example a NUL character in the path
+        logger.error("Failed to save to a folder: %s", type(e).__name__)
+        raise DeliveryError("The folder path is not valid. Choose the folder again.") from None
     finally:
         if tmp_name:
             try:
@@ -126,6 +129,8 @@ def test_folder(folder: str) -> dict:
         os.unlink(name)
     except OSError as e:
         return {"ok": False, "message": folder_error_message(folder, e)}
+    except ValueError:
+        return {"ok": False, "message": "The folder path is not valid."}
     return {"ok": True, "message": f"OpenScanHub can write to {folder}."}
 
 
