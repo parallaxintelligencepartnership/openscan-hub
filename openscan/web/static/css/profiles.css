@@ -1,0 +1,42 @@
+/* OpenScanHub - scan profiles (editor page and dashboard buttons). */
+
+.profile-buttons-head { display: flex; justify-content: space-between; align-items: baseline; }
+.profile-buttons-head a { font-size: 14px; }
+.profile-button-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.profile-button { display: inline-flex; align-items: center; gap: 8px; min-width: 140px; }
+.profile-icon { font-size: 18px; line-height: 1; }
+
+.profile-list { list-style: none; padding: 0; margin: 0; }
+.profile-item {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 10px 0; border-bottom: 1px solid var(--gray-200);
+}
+.profile-item:last-child { border-bottom: none; }
+.profile-item.selected .profile-name { font-weight: 600; color: var(--primary); }
+.profile-name { flex: 1; min-width: 140px; }
+.profile-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+.hint-inline { color: var(--gray-500); font-size: 12px; }
+
+.profiles-page h3 { font-size: 15px; margin: 20px 0 10px; color: var(--gray-700); }
+.form-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.form-row .form-group { flex: 1; min-width: 150px; }
+.form-row .grow { flex: 3; }
+.form-row .icon-field { flex: 0 0 90px; min-width: 90px; }
+.toggle-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 4px 16px; }
+
+.profiles-page textarea {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--gray-300);
+    border-radius: 8px; font: inherit; font-size: 14px; box-sizing: border-box;
+}
+.field-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.chip {
+    border: 1px solid var(--gray-300); background: var(--gray-50, #f9fafb); border-radius: 999px;
+    padding: 2px 10px; font-family: monospace; font-size: 12px; cursor: pointer;
+}
+.chip:hover { border-color: var(--primary); color: var(--primary); }
+.name-preview { font-size: 14px; }
+.name-preview .mono { font-family: monospace; background: var(--gray-100); padding: 2px 6px; border-radius: 4px; }
+
+.dest-card { border: 1px solid var(--gray-200); border-radius: 8px; padding: 12px; margin-bottom: 8px; }
+.dest-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.dest-test-result { margin-top: 6px; }
