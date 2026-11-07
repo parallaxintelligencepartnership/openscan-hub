@@ -118,10 +118,11 @@ def test_splitter_makes_several_documents(cfg, isolated):
 
 
 def test_missing_splitter_keeps_one_document(cfg, isolated):
-    profile = Profile(id="b", name="B", split="barcode", destinations=[{"type": "folder", "options": {}}])
+    profile = Profile(id="b", name="B", split="patchcode",
+                      destinations=[{"type": "folder", "options": {}}])
     res = intake.handle_scan(cfg, _pdf(False, False), source="adf", profile=profile)
     assert res.ok and len(res.documents) == 1
-    assert any("barcode" in w for w in res.warnings)
+    assert any("patchcode" in w for w in res.warnings)
 
 
 def test_field_provider_feeds_the_name(cfg, isolated):

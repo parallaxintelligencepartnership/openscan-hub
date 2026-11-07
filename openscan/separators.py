@@ -1,8 +1,13 @@
 """Separator sheets: split one feeder batch into several documents.
 
     blank    a blank page ends a document and is dropped
-    barcode  a page with a barcode or QR code ends a document and is dropped;
-             its value is the {barcode} name field of the next document
+    barcode  a page with a code that starts with the separator prefix
+             (ProcessOptions.separator_prefix, default "OSH:") ends a
+             document and is dropped. The text after the prefix is the
+             {barcode} name field of the next document. Pages with other
+             codes, such as an invoice's QR code, are kept.
+
+separator_sheet(label) makes a printable sheet for "OSH:<label>".
 
 Import this module once (intake does) to register both splitters and the
 {barcode} name field.
@@ -24,6 +29,7 @@ from .processing import ProcessResult
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_PREFIX = "OSH:"
 _BLANK_DPI = 50
 _BARCODE_DPI = 200
 
@@ -50,9 +56,19 @@ def read_barcodes(img) -> list[str]:
     return [b.text for b in zxingcpp.read_barcodes(img.convert("L"))]
 
 
-def _barcode(pdf: bytes, index: int) -> Optional[str]:
-    values = read_barcodes(pages._render(pdf, index, scale=_BARCODE_DPI / 72))
-    return values[0] if values else None
+def _prefix(result: ProcessResult) -> str:
+    options = getattr(result, "options", None)
+    prefix = getattr(options, "separator_prefix", DEFAULT_PREFIX)
+    return DEFAULT_PREFIX if prefix is None else str(prefix)
+
+
+def _barcode_detector(prefix: str) -> Detector:
+    def detect(pdf: bytes, index: int) -> Optional[str]:
+        for value in read_barcodes(pages._render(pdf, index, scale=_BARCODE_DPI / 72)):
+            if value.startswith(prefix):
+                return value[len(prefix):].strip()
+        return None
+    return detect
 
 
 def split(pdf: bytes, result: ProcessResult, detect: Detector) -> list[tuple[bytes, ProcessResult]]:
@@ -119,7 +135,39 @@ def split_on_blank_pages(pdf: bytes, result: ProcessResult):
 
 
 def split_on_barcodes(pdf: bytes, result: ProcessResult):
-    return split(pdf, result, _barcode)
+    return split(pdf, result, _barcode_detector(_prefix(result)))
+
+
+_SHEET_DPI = 200
+_LETTER = (int(8.5 * _SHEET_DPI), int(11 * _SHEET_DPI))
+MAX_LABEL = 80
+
+
+def separator_sheet(label: str, prefix: str = DEFAULT_PREFIX) -> bytes:
+    """A one-page Letter PDF: a large QR code for prefix+label, the label under it."""
+    import zxingcpp
+    from PIL import Image, ImageDraw, ImageFont
+
+    label = " ".join(str(label).split())[:MAX_LABEL]
+    code = zxingcpp.create_barcode(prefix + label, zxingcpp.BarcodeFormat.QRCode)
+    mark = Image.fromarray(zxingcpp.write_barcode_to_image(code, scale=1)).convert("L")
+    side = 4 * _SHEET_DPI  # 4 inches
+    mark = mark.resize((side, side), Image.NEAREST)
+    page = Image.new("L", _LETTER, 255)
+    top = _SHEET_DPI * 2
+    page.paste(mark, ((_LETTER[0] - side) // 2, top))
+    draw = ImageDraw.Draw(page)
+    for text, size, y in ((label, 72, top + side + 80),
+                          ("OpenScanHub separator sheet", 36, top + side + 220)):
+        try:
+            font = ImageFont.load_default(size=size)
+        except TypeError:  # Pillow without FreeType text sizes
+            font = ImageFont.load_default()
+        width = draw.textlength(text, font=font)
+        draw.text(((_LETTER[0] - width) / 2, y), text, fill=0, font=font)
+    out = BytesIO()
+    page.convert("1").save(out, format="PDF", resolution=float(_SHEET_DPI))
+    return out.getvalue()
 
 
 @register_field_provider

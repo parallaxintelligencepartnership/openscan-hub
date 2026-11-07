@@ -581,6 +581,7 @@ def load_routes() -> None:
     from . import settings_api  # noqa: F401
     from . import audit_api  # noqa: F401
     from . import profiles_api  # noqa: F401
+    from . import separator_api  # noqa: F401
     from .. import edition
     if edition.has("homeassistant"):
         try:

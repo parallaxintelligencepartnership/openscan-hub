@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field, fields
-from typing import Any
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,9 @@ class ProcessOptions:
     compression: str = "none"  # none | standard | small
     output_color: str = "keep"  # keep | gray | bw
     pdfa: bool = False
+    # A barcode separator sheet holds a code that starts with this text.
+    # Other codes (an invoice's QR code) are not separators. Empty: any code.
+    separator_prefix: str = "OSH:"
 
     def to_dict(self) -> dict:
         return {f.name: getattr(self, f.name) for f in fields(self)}
@@ -69,6 +72,7 @@ class ProcessResult:
     """
 
     pdf: bytes
+    options: Optional[ProcessOptions] = None  # the options the run used
     page_texts: list[str] = field(default_factory=list)
     pages_removed: int = 0
     warnings: list[str] = field(default_factory=list)

@@ -63,7 +63,7 @@ def run(pdf: bytes, options: ProcessOptions | None = None) -> ProcessResult:
     from before that stage. With no stage enabled the bytes come back as is.
     """
     options = options or ProcessOptions()
-    result = ProcessResult(pdf=pdf)
+    result = ProcessResult(pdf=pdf, options=options)
     for stage in enabled_stages(options):
         before_removed = result.pages_removed
         try:
