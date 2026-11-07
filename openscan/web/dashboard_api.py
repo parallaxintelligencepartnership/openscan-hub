@@ -501,13 +501,33 @@ def api_history(handler, query):
 
 # --- multi-page ---------------------------------------------------------------
 
+def _profile_for(config: AppConfig, profile_id: Any) -> Optional[Profile]:
+    """The live profile with this id, or None for no id. 404 if it does not exist."""
+    if profile_id in (None, ""):
+        return None
+    found = profiles.find(config, profile_id) if isinstance(profile_id, str) else None
+    if found is None and isinstance(profile_id, str) and not config.profiles:
+        implicit = profiles.from_settings(config)  # the migrated Default profile
+        found = implicit if implicit.id == profile_id else None
+    if found is None:
+        raise BadRequest("Profile not found", status=404)
+    return profiles.live(config, found)
+
+
 @route("POST", "/api/multipage/start")
 def api_multipage_start(handler, query):
     body = handler.read_json_body()
-    if scanner_mode(get_config()) != "scanner":
+    config = get_config()
+    # "upload_only" starts a session for photos and PDFs, which needs no scanner.
+    if scanner_mode(config) != "scanner" and body.get("upload_only") is not True:
         raise BadRequest(NO_DRIVE_MESSAGE)
-    session_id = multipage.create_session(parse_source(body.get("source", "flatbed")))
-    handler._send_json({"session_id": session_id})
+    profile = _profile_for(config, body.get("profile_id"))
+    if profile is None:
+        source = parse_source(body.get("source", "flatbed"))
+    else:
+        source = pick_source(config, profile, body.get("source"))
+    session_id = multipage.create_session(source, profile.id if profile else "")
+    handler._send_json({"session_id": session_id, "profile_id": profile.id if profile else ""})
 
 
 def _session_from(body: dict):
@@ -527,10 +547,12 @@ def api_multipage_scan(handler, query):
     config = get_config()
     if scanner_mode(config) != "scanner":
         raise BadRequest(NO_DRIVE_MESSAGE)
+    profile = _profile_for(config, session.profile_id) if session.profile_id else None
     try:
         # One page per scan; blank pages are dropped when the session is saved.
         page_count = multipage.scan_page(
-            session_id, lambda: execute_scan(config, session.source, remove_blank_pages=False))
+            session_id, lambda: execute_scan(config, session.source, remove_blank_pages=False,
+                                             profile=profile))
     except multipage.ScannerBusyError:
         handler._send_json({"success": False, "error": BUSY_MESSAGE}, status=409)
         return
@@ -574,13 +596,15 @@ def api_multipage_save(handler, query):
     if not session.pages:
         raise BadRequest("No pages to save")
     config = get_config()
+    profile = _profile_for(config, body.get("profile_id") or session.profile_id)
     # Blank pages are removed once, by the profile's processing in intake.
     pdf_data = multipage.merge_pages(session_id)
     summary = save_document(config, pdf_data, _source_id(session.source),
-                            web_started_by(handler))
+                            web_started_by(handler), profile)
     page_count = summary["page_count"] or _page_count(pdf_data, len(session.pages))
+    extra = {"profile": profile.name} if profile else {}
     entry = _history_entry(summary, summary["size_bytes"], session.source.value,
-                           page_count=page_count)
+                           page_count=page_count, **extra)
     add_to_history(entry)
     # The pages are in the saved, queued or failed file now; on a hard failure
     # keep the session so the user can try again.
@@ -593,6 +617,66 @@ def api_multipage_save(handler, query):
         "page_count": page_count,
         "results": entry["results"],
     })
+
+
+def _page_edit(handler, edit) -> None:
+    """Run `edit(session_id, body)` and answer with the session info."""
+    body = handler.read_json_body()
+    session_id, _ = _session_from(body)
+    try:
+        edit(session_id, body)
+    except IndexError as e:
+        raise BadRequest(str(e))
+    except ValueError as e:
+        raise BadRequest(str(e))
+    handler._send_json({"success": True, **(multipage.get_session_info(session_id) or {})})
+
+
+@route("POST", "/api/multipage/reorder")
+def api_multipage_reorder(handler, query):
+    """Body: {"session_id", "order": [page indexes in the new order]}."""
+    _page_edit(handler, lambda sid, body: multipage.reorder_pages(sid, body.get("order")))
+
+
+@route("POST", "/api/multipage/rotate")
+def api_multipage_rotate(handler, query):
+    """Body: {"session_id", "page_index", "degrees": 90 | 180 | 270 | -90}."""
+    _page_edit(handler, lambda sid, body: multipage.rotate_page(
+        sid, body.get("page_index"), body.get("degrees", 90)))
+
+
+@route("POST", "/api/multipage/delete-page")
+def api_multipage_delete_page(handler, query):
+    """Body: {"session_id", "page_index"}."""
+    _page_edit(handler, lambda sid, body: multipage.delete_page(sid, body.get("page_index")))
+
+
+@route("POST", "/api/multipage/upload", json_only=False)
+def api_multipage_upload(handler, query):
+    """Add a photo or PDF as pages. The raw body is the file and Content-Type
+    says what it is. Query: session_id. One file per request, 25 MB at most."""
+    session_id = (query.get("session_id") or [""])[0]
+    if not session_id:
+        raise BadRequest("Missing session_id")
+    if not multipage.get_session(session_id):
+        raise BadRequest("Session not found or expired", status=404)
+    try:
+        length = int(handler.headers.get("Content-Length", 0) or 0)
+    except ValueError:
+        raise BadRequest("Bad Content-Length")
+    if length <= 0:
+        raise BadRequest("The file is empty.")
+    if length > multipage.MAX_UPLOAD_BYTES:
+        raise BadRequest("The file is larger than 25 MB.", status=413)
+    data = handler.rfile.read(length)
+    try:
+        count = multipage.add_upload(session_id, data, handler.headers.get("Content-Type", ""))
+    except multipage.UploadError as e:
+        raise BadRequest(str(e), status=415)
+    except ValueError:
+        raise BadRequest("Session not found or expired", status=404)
+    handler._send_json({"success": True, "page_count": count,
+                        **(multipage.get_session_info(session_id) or {})})
 
 
 @route("POST", "/api/multipage/cancel")
