@@ -179,6 +179,14 @@ def redacted_config(cfg: AppConfig) -> dict:
     data["ftp_receive"]["password"] = ""
     data["web"]["has_token"] = bool(cfg.web.api_token)
     data["web"]["api_token"] = ""
+    from .. import destinations
+    for profile in data.get("profiles") or []:
+        for dest in profile.get("destinations") or []:
+            cls = destinations.get(dest.get("type", ""))
+            options = dest.get("options") or {}
+            for key in (cls.secret_keys() if cls else ()):
+                options[f"has_{key}"] = bool(options.get(key))
+                options[key] = ""
     return data
 
 

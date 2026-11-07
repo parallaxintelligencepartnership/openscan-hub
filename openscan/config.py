@@ -108,6 +108,10 @@ class AppConfig:
     scan: ScanDefaults = field(default_factory=ScanDefaults)
     homeassistant: HomeAssistantConfig = field(default_factory=HomeAssistantConfig)
     log_level: str = "INFO"
+    # Scan profiles (openscan.profiles.Profile). load_config adds a "Default"
+    # profile that follows the sections above when the file has none.
+    profiles: list = field(default_factory=list)
+    default_profile_id: str = ""
 
     @property
     def web_port(self) -> int:
@@ -224,6 +228,12 @@ def load_config(path: Optional[Path] = None) -> AppConfig:
         config = AppConfig()
 
     generated = False
+    if config.profiles or not getattr(config, "_had_profiles", False):
+        # A file from before 0.4 (or no file) gets the "Default" profile; a
+        # default_profile_id that names no profile is fixed.
+        from . import profiles
+        generated = profiles.migrate(config)
+    config.__dict__.pop("_had_profiles", None)
     if not config.web.api_token:
         config.web.api_token = secrets.token_hex(16)
         generated = True
@@ -231,6 +241,7 @@ def load_config(path: Optional[Path] = None) -> AppConfig:
         config.ftp_receive.password = secrets.token_urlsafe(12)
         generated = True
     if generated:
+        # New secrets or the migrated profile: persist so they stay the same.
         try:
             save_config(config, config_path)
         except OSError as e:
@@ -378,6 +389,13 @@ def _dict_to_config(data: dict) -> AppConfig:
                 raw.setdefault("tags", raw["default_tags"])
                 del raw["default_tags"]
         setattr(config, name, _section(cls, raw, name))
+
+    if isinstance(data.get("default_profile_id"), str):
+        config.default_profile_id = data["default_profile_id"]
+    if "profiles" in data:
+        from . import profiles
+        config.profiles = profiles.list_from_json(data["profiles"])
+        config.__dict__["_had_profiles"] = True
 
     # Migrate old top-level web_port
     old_port = data.get("web_port")
