@@ -506,8 +506,14 @@ def load_routes() -> None:
     from . import wizard_api  # noqa: F401
     from . import dashboard_api  # noqa: F401
     from . import settings_api  # noqa: F401
-    from ..integrations import homeassistant
-    homeassistant.register()
+    from .. import edition
+    if edition.has("homeassistant"):
+        try:
+            from ..integrations import homeassistant
+        except ImportError:  # removed from this build
+            logger.info("Home Assistant module is not in this build")
+        else:
+            homeassistant.register()
 
 
 def create_server(config: AppConfig) -> OpenScanServer:

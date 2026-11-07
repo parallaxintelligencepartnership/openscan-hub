@@ -334,6 +334,14 @@ def start_scan_async(source: ScanSource, wait: float = 5.0) -> bool:
 
 # --- routes ----------------------------------------------------------------
 
+@route("GET", "/api/edition")
+def api_edition(handler, query):
+    """Which edition this is and which optional features it has. The pages
+    use it to hide controls for modules that are not in the build."""
+    from .. import edition
+    handler._send_json({"edition": edition.current(), "features": edition.features()})
+
+
 @route("GET", "/api/health", public=True, query_token=True)
 def api_health(handler, query):
     config = get_config()
