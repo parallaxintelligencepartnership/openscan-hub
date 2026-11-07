@@ -311,3 +311,15 @@ def test_move_expunges_only_this_message_with_uidplus(tls, trust, tmp_path, queu
         assert any(line.upper().startswith("UID EXPUNGE") for line in server.log)
     finally:
         server.close()
+
+
+def test_mail_above_the_size_limit_is_not_fetched(ssl_server, trust, tmp_path, monkeypatch, queue):
+    # Review A10: a huge message must not be read into memory.
+    monkeypatch.setattr(imap_receive, "MAX_MESSAGE_BYTES", 100)
+    ssl_server.add(make_mail())
+    cfg = config_for(ssl_server, tmp_path)
+    assert imap_receive.poll_once(cfg) == 0
+    assert not any("BODY.PEEK" in line for line in ssl_server.log)
+    assert out_files(tmp_path) == []
+    [m] = ssl_server.messages("INBOX")
+    assert "\\Seen" not in m["flags"]

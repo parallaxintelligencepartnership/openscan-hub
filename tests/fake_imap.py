@@ -162,7 +162,10 @@ class FakeImapServer:
             self._send(st, f"{tag} OK nothing")
             return
         m = target[0]
-        if sub == "FETCH":
+        if sub == "FETCH" and "RFC822.SIZE" in tail.upper():
+            self._send(st, f"* 1 FETCH (UID {m['uid']} RFC822.SIZE {len(m['raw'])})")
+            self._send(st, f"{tag} OK done")
+        elif sub == "FETCH":
             raw = m["raw"]
             f = st["f"]
             f.write(f"* 1 FETCH (UID {m['uid']} BODY[] {{{len(raw)}}}\r\n".encode() + raw + b")\r\n")

@@ -313,3 +313,16 @@ def test_smb_destination_does_not_close_the_poll_session(box, samba, tmp_path):
     polls(cfg, 2, seen, state)  # first sighting, then deliver both
     assert sorted(p.name for p in out.iterdir()) == ["a.pdf", "b.pdf"]
     assert sorted(p.name for p in folder.iterdir()) == ["processed"]
+
+
+def test_file_above_the_size_limit_stays_on_the_share(box, tmp_path, monkeypatch):
+    # Review A10: a huge file must not be read into memory.
+    cfg, folder = box
+    monkeypatch.setattr(smb_poll, "MAX_FILE_BYTES", 10)
+    opened = []
+    real_open = smbclient.open_file
+    monkeypatch.setattr(smbclient, "open_file", lambda *a, **k: opened.append(a[0]) or real_open(*a, **k))
+    (folder / "big.pdf").write_bytes(PDF)
+    polls(cfg, 3, {}, {})
+    assert opened == []
+    assert (folder / "big.pdf").exists() and not (tmp_path / "out").exists()

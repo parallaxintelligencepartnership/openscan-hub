@@ -67,7 +67,7 @@ OpenScanHub checks the folder at the interval you set. It takes a file when the 
 
 OpenScanHub writes the name, size and time of each delivered file to a state file in its config folder. It never delivers the same file twice, also after a restart. It counts a file as handled only when every document was delivered or is in the retry queue. If the retry queue cannot store a document (for example the disk is full), the next poll tries the file again. If the move or delete fails, OpenScanHub tries again but does not deliver the file again.
 
-The poll reads PDF, JPEG, PNG and TIFF files in the one folder. It does not read subfolders.
+The poll reads PDF, JPEG, PNG and TIFF files in the one folder. It does not read subfolders. A file larger than 100 MB stays on the share, and the log tells you.
 
 ## Scan to email
 
@@ -82,7 +82,7 @@ A scanner or a phone app sends the scan as an email attachment. OpenScanHub read
 7. Enter the folder for finished mail. OpenScanHub makes it if it is not there. Leave it empty to only mark mail as read.
 8. Save.
 
-OpenScanHub takes PDF, JPEG, PNG and TIFF attachments from unread mail. After it delivers all attachments of a mail, it marks the mail as read and moves it. If a delivery fails, the mail stays unread and OpenScanHub tries again.
+OpenScanHub takes PDF, JPEG, PNG and TIFF attachments from unread mail. After it delivers all attachments of a mail, it marks the mail as read and moves it. If a delivery fails, the mail stays unread and OpenScanHub tries again. It does not deliver an attachment again that it already delivered. A mail larger than 100 MB stays unread, and the log tells you.
 
 > Caution: The connection checks the server certificate. A server with a self-signed certificate is refused.
 
@@ -109,5 +109,5 @@ Some mail providers need an app password or OAuth. OpenScanHub supports user nam
 
 | Date | Change |
 |---|---|
-| 2026-11-06 | Say when an input counts a file as handled. |
+| 2026-11-06 | Say when an input counts a file as handled. Add the 100 MB limit. |
 | 2026-11-06 | First version. |

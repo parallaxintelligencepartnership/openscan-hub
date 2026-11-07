@@ -14,6 +14,7 @@ import email.policy
 import hashlib
 import imaplib
 import logging
+import re
 import ssl
 import threading
 from datetime import datetime
@@ -29,6 +30,8 @@ logger = logging.getLogger(__name__)
 
 SCAN_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".tiff", ".tif"}
 SCAN_TYPES = {"application/pdf", "image/jpeg", "image/png", "image/tiff"}
+# A larger message is left alone, so one huge mail cannot use all memory.
+MAX_MESSAGE_BYTES = 100 * 1024 * 1024
 CONNECT_TIMEOUT = 30
 
 _thread: Optional[threading.Thread] = None
@@ -212,6 +215,11 @@ def _handle_message(config: AppConfig, conn, uid: bytes) -> str:
     moved), "skip" (not allowed or nothing to take: left unseen) or "retry"
     (a delivery failed: left unseen, tried again next poll)."""
     c = config.imap_receive
+    size = _message_size(conn, uid)
+    if size is not None and size > MAX_MESSAGE_BYTES:
+        logger.error("A mail of %.0f MB is above the %d MB limit and was left alone",
+                     size / 1048576, MAX_MESSAGE_BYTES // 1048576)
+        return "skip"
     typ, data = conn.uid("FETCH", uid, "(BODY.PEEK[])")
     if typ != "OK" or not data or not isinstance(data[0], tuple):
         return "retry"
@@ -247,6 +255,22 @@ def _handle_message(config: AppConfig, conn, uid: bytes) -> str:
         else:
             logger.error("Could not move a message to %s", target)
     return "done"
+
+
+def _message_size(conn, uid) -> Optional[int]:
+    """RFC822.SIZE of the message, or None when the server does not say."""
+    try:
+        typ, data = conn.uid("FETCH", uid, "(RFC822.SIZE)")
+    except imaplib.IMAP4.error:
+        return None
+    if typ != "OK":
+        return None
+    for item in data or []:
+        raw = item[0] if isinstance(item, tuple) else item
+        m = re.search(rb"RFC822\.SIZE (\d+)", raw or b"")
+        if m:
+            return int(m.group(1))
+    return None
 
 
 def _message_key(config: AppConfig, uid) -> str:

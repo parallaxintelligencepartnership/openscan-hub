@@ -26,6 +26,8 @@ from .ftp_receive import sanitize_filename
 logger = logging.getLogger(__name__)
 
 SCAN_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png", ".tiff", ".tif"}
+# A larger file stays on the share, so one huge file cannot use all memory.
+MAX_FILE_BYTES = 100 * 1024 * 1024
 PROCESSED_DIR = "processed"
 STATE_FILE = "smb_poll_state.json"
 
@@ -34,6 +36,7 @@ _stop = threading.Event()
 _lock = threading.Lock()
 _error: Optional[str] = None
 _last_error: Optional[str] = None
+_too_big: dict[str, tuple] = {}  # files already reported as too large
 
 
 def smb_poll_running() -> bool:
@@ -241,6 +244,12 @@ def _deliver(config: AppConfig, name: str, sig: tuple) -> bool:
     (delivered, or held by the retry queue)."""
     import smbclient
     unc = folder_unc(config) + "\\" + name
+    if sig[0] > MAX_FILE_BYTES:
+        if _too_big.get(name) != sig:
+            _too_big[name] = sig
+            logger.error("%s is %.0f MB, above the %d MB limit. It stays on the share.",
+                         name, sig[0] / 1048576, MAX_FILE_BYTES // 1048576)
+        return False
     try:
         with smbclient.open_file(unc, mode="rb", **_kw(config)) as f:
             data = f.read()
