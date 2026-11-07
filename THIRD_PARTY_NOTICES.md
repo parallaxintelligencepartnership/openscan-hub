@@ -16,7 +16,20 @@ bundle them; each keeps its own license. Exact versions are pinned in
 | pypdf | BSD-3-Clause | Joining pages into one PDF | https://github.com/py-pdf/pypdf |
 | pypdfium2 | Apache-2.0 OR BSD-3-Clause | Page thumbnails | https://github.com/pypdfium2-team/pypdfium2 |
 | PDFium (binary inside pypdfium2) | Apache-2.0 OR BSD-3-Clause, plus the notices of its bundled libraries (FreeType, libjpeg-turbo, LittleCMS, libpng, OpenJPEG, zlib, ICU and others) listed in pypdfium2's `LicenseRef-PdfiumThirdParty.txt` | PDF rendering | https://pdfium.googlesource.com/pdfium/ |
-| Pillow | MIT-CMU (HPND) | Turning scanned images into PDF pages | https://github.com/python-pillow/Pillow |
+| Pillow | MIT-CMU (HPND) | Turning scanned images into PDF pages; deskew, crop, gray and black-and-white pages | https://github.com/python-pillow/Pillow |
+| LittleCMS (inside Pillow) | MIT | The sRGB color profile in PDF/A files | https://github.com/mm2/Little-CMS |
+| zxing-cpp | Apache-2.0 | Reading barcodes and QR codes on separator sheets | https://github.com/zxing-cpp/zxing-cpp |
+| Zint (inside zxing-cpp) | BSD-3-Clause | Barcode writing in zxing-cpp (OpenScanHub only reads) | https://github.com/zint/zint |
+
+## Separate programs (not bundled in the EXE)
+
+| Program | License | Used for | Source |
+|---|---|---|---|
+| Tesseract OCR | Apache-2.0 | Text recognition and page orientation. The Docker image installs it from Debian with English, German, French and Spanish language data (Apache-2.0) and the libraries it needs, among them Leptonica (BSD-2-Clause style); each Debian package keeps its copyright file in `/usr/share/doc`. On Windows you install it yourself; OpenScanHub looks for `tesseract` on PATH and in the standard `Tesseract-OCR` install folders. | https://github.com/tesseract-ocr/tesseract |
+
+OpenScanHub runs Tesseract as a separate program and does not link it.
+OpenScanHub does not use Ghostscript (AGPL); PDF/A output is made with
+pypdf and Pillow.
 
 ## Windows EXE only
 

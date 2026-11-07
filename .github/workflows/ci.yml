@@ -23,6 +23,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Install Tesseract (text recognition tests)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-osd tesseract-ocr-eng
+
       - name: Install pinned dependencies
         run: |
           python -m pip install --require-hashes -r requirements.lock

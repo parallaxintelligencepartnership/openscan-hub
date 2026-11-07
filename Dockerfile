@@ -23,6 +23,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Tesseract (Apache-2.0) for text recognition and page orientation, run as a
+# separate program, with English, German, French and Spanish language data.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-osd \
+        tesseract-ocr-eng tesseract-ocr-deu tesseract-ocr-fra tesseract-ocr-spa \
+    && rm -rf /var/lib/apt/lists/*
+
 # Pinned, hash-checked dependencies (pure wheels exist for amd64 and arm64).
 COPY requirements.lock ./
 RUN pip install --require-hashes -r requirements.lock

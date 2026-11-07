@@ -40,6 +40,8 @@ def build():
         "--hidden-import", "pystray",
         "--hidden-import", "PIL",
         "--hidden-import", "pypdfium2",
+        "--hidden-import", "zxingcpp",
+        "--hidden-import", "PIL.ImageCms",
         "--collect-binaries", "pypdfium2_raw",
         "--distpath", str(root / "dist"),
         "--workpath", str(root / "build"),
