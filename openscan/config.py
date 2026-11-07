@@ -96,6 +96,17 @@ class HomeAssistantConfig:
 
 
 @dataclass
+class AuditConfig:
+    # On by default in the Office edition. Read once when the file has no value.
+    enabled: bool = field(default_factory=lambda: _edition_has("audit_default_on"))
+
+
+def _edition_has(feature: str) -> bool:
+    from . import edition
+    return edition.has(feature)
+
+
+@dataclass
 class AppConfig:
     wizard_completed: bool = False
     scanner: ScannerConfig = field(default_factory=ScannerConfig)
@@ -107,6 +118,7 @@ class AppConfig:
     web: WebConfig = field(default_factory=WebConfig)
     scan: ScanDefaults = field(default_factory=ScanDefaults)
     homeassistant: HomeAssistantConfig = field(default_factory=HomeAssistantConfig)
+    audit: AuditConfig = field(default_factory=AuditConfig)
     log_level: str = "INFO"
     # Scan profiles (openscan.profiles.Profile). load_config adds a "Default"
     # profile that follows the sections above when the file has none.
@@ -380,6 +392,7 @@ def _dict_to_config(data: dict) -> AppConfig:
         "web": WebConfig,
         "scan": ScanDefaults,
         "homeassistant": HomeAssistantConfig,
+        "audit": AuditConfig,
     }
     for name, cls in sections.items():
         raw = data.get(name)

@@ -20,7 +20,7 @@ from .server import BadRequest, get_config, route, secret_equal, set_config
 logger = logging.getLogger(__name__)
 
 SECTIONS = ("scanner", "output", "paperless", "monitor", "folder_watch",
-            "ftp_receive", "web", "scan", "homeassistant")
+            "ftp_receive", "web", "scan", "homeassistant", "audit")
 
 # Blank means "keep the current value".
 SECRET_FIELDS = {("paperless", "api_token"), ("ftp_receive", "password")}

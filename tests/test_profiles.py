@@ -108,6 +108,12 @@ def test_office_ignores_paperless_settings(monkeypatch):
     assert cfg.paperless.consume_folder == "/c"
 
 
+def test_audit_default_follows_edition(monkeypatch):
+    assert AppConfig().audit.enabled is False
+    monkeypatch.setattr(_edition, "EDITION", "office")
+    assert AppConfig().audit.enabled is True
+
+
 def test_redacted_config_hides_profile_secrets():
     from openscan.web.settings_api import redacted_config
     cfg = AppConfig()
