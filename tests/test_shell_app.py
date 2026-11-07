@@ -401,3 +401,29 @@ def test_request_log_hides_query_token(live_server, caplog):
         live_server.get(f"/api/ha/status?token={TOKEN}")
     assert caplog.records
     assert not any(TOKEN in r.getMessage() for r in caplog.records)
+
+
+def test_esc_is_safe_in_quoted_attributes():
+    # Review A2: value="${esc(text)}" cut an email subject at the first quote.
+    import re
+    import shutil
+    from openscan.web.server import STATIC_DIR
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not installed")
+    src = (STATIC_DIR / "js" / "common.js").read_text()
+    fn = re.search(r"^function esc\(str\) \{.*?^\}", src, re.S | re.M).group(0)
+    # A DOM stand-in for the old helper: text nodes serialize with & < > escaped
+    # (the HTML serialization rule), quotes kept.
+    stub = """const document = {createElement() { return {
+        set textContent(v) { this._t = v; },
+        get innerHTML() { return this._t.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/\\u00a0/g, '&nbsp;'); } }; }};"""
+    script = stub + fn + """
+const out = esc(process.argv[1]);
+process.stdout.write(out);"""
+    text = 'Scan of "{filename}" <b>it\'s</b> & more'
+    out = subprocess.run([node, "-e", script, text], capture_output=True, text=True, timeout=30)
+    assert out.returncode == 0, out.stderr
+    assert '"' not in out.stdout and "'" not in out.stdout and "<" not in out.stdout
+    assert out.stdout == ("Scan of &quot;{filename}&quot; &lt;b&gt;it&#39;s&lt;/b&gt; &amp; more")

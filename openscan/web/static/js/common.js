@@ -48,11 +48,11 @@ async function checkConfigWritable() {
     } catch (e) { /* the page shows its own "not responding" state */ }
 }
 
+// Safe in element text and in quoted attribute values.
 function esc(str) {
     if (str == null) return '';
-    const div = document.createElement('div');
-    div.textContent = String(str);
-    return div.innerHTML;
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function toast(message, type = 'info', ms = 5000) {
