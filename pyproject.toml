@@ -31,6 +31,7 @@ dependencies = [
     "pypdf>=4.0.0",
     "pypdfium2>=4.30,<5",
     "Pillow>=10.0.0",
+    "smbprotocol>=1.15",
 ]
 
 [project.optional-dependencies]

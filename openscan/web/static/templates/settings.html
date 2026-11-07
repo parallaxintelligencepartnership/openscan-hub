@@ -187,6 +187,99 @@
                 <input type="text" id="watch-folder">
                 <small class="hint">Must be different from the folder where scans go.</small>
             </div>
+            <label class="toggle mt-8">
+                <input type="checkbox" id="smb-enabled">
+                <span class="slider"></span>
+                <span class="label">Pick up scans from a network share (NAS)</span>
+            </label>
+            <div id="smb-fields" class="mt-8">
+                <small class="hint">The scanner saves to a share with "Scan to network folder". OpenScanHub logs in and checks the share for new files.</small>
+                <div class="form-group mt-8">
+                    <label for="smb-server">Server</label>
+                    <input type="text" id="smb-server" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="smb-share">Share name</label>
+                    <input type="text" id="smb-share" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="smb-path">Folder in the share</label>
+                    <input type="text" id="smb-path" autocomplete="off">
+                    <small class="hint">Leave empty to use the top of the share.</small>
+                </div>
+                <div class="form-group">
+                    <label for="smb-username">User name</label>
+                    <input type="text" id="smb-username" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="smb-password">Password</label>
+                    <input type="password" id="smb-password" autocomplete="new-password">
+                </div>
+                <div class="form-group">
+                    <label for="smb-domain">Domain (optional)</label>
+                    <input type="text" id="smb-domain" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="smb-interval">Check every (seconds)</label>
+                    <input type="number" id="smb-interval" min="5" max="3600">
+                </div>
+                <div class="form-group">
+                    <label for="smb-after">After delivery</label>
+                    <select id="smb-after">
+                        <option value="move">Move the file to a "processed" folder</option>
+                        <option value="delete">Delete the file</option>
+                    </select>
+                </div>
+            </div>
+            <label class="toggle mt-8">
+                <input type="checkbox" id="imap-enabled">
+                <span class="slider"></span>
+                <span class="label">Take scans from an email mailbox</span>
+            </label>
+            <div id="imap-fields" class="mt-8">
+                <small class="hint">OpenScanHub reads unread mail, takes PDF and image attachments, then marks the mail as read and moves it.</small>
+                <div class="form-group mt-8">
+                    <label for="imap-host">Mail server</label>
+                    <input type="text" id="imap-host" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="imap-security">Security</label>
+                    <select id="imap-security">
+                        <option value="ssl">SSL (usually port 993)</option>
+                        <option value="starttls">STARTTLS (usually port 143)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="imap-port">Port</label>
+                    <input type="number" id="imap-port" min="1" max="65535">
+                </div>
+                <div class="form-group">
+                    <label for="imap-username">User name</label>
+                    <input type="text" id="imap-username" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="imap-password">Password</label>
+                    <input type="password" id="imap-password" autocomplete="new-password">
+                </div>
+                <div class="form-group">
+                    <label for="imap-folder">Mailbox folder to read</label>
+                    <input type="text" id="imap-folder" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="imap-senders">Allowed senders (optional)</label>
+                    <input type="text" id="imap-senders" autocomplete="off">
+                    <small class="hint">Separate with commas. Use an address or a domain such as @example.com. Empty means any sender.</small>
+                </div>
+                <div class="form-group">
+                    <label for="imap-move">Move finished mail to this folder</label>
+                    <input type="text" id="imap-move" autocomplete="off">
+                    <small class="hint">Leave empty to only mark the mail as read.</small>
+                </div>
+                <div class="form-group">
+                    <label for="imap-interval">Check every (seconds)</label>
+                    <input type="number" id="imap-interval" min="10" max="3600">
+                </div>
+            </div>
         </div>
 
         <!-- Integrations -->

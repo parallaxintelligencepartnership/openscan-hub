@@ -20,7 +20,7 @@ from .server import BadRequest, get_config, route, secret_equal, set_config
 logger = logging.getLogger(__name__)
 
 SECTIONS = ("scanner", "output", "paperless", "monitor", "folder_watch",
-            "ftp_receive", "web", "scan", "homeassistant", "audit")
+            "ftp_receive", "smb_poll", "imap_receive", "web", "scan", "homeassistant", "audit")
 
 # Sections that exist only in editions that ship the module.
 OPTIONAL_SECTIONS = {"paperless": "paperless", "homeassistant": "homeassistant"}
@@ -28,7 +28,8 @@ OFFICE_REFUSAL = ("Home Assistant and Paperless-NGX are not part of this edition
                   "so these settings cannot be saved.")
 
 # Blank means "keep the current value".
-SECRET_FIELDS = {("paperless", "api_token"), ("ftp_receive", "password")}
+SECRET_FIELDS = {("paperless", "api_token"), ("ftp_receive", "password"),
+                 ("smb_poll", "password"), ("imap_receive", "password")}
 # Never set through settings (the token has its own regenerate route).
 READ_ONLY_FIELDS = {("web", "api_token"), ("web", "scan_token"), ("ftp_receive", "staging_dir")}
 
@@ -37,6 +38,8 @@ CHOICES = {
     ("paperless", "mode"): {"consume", "api"},
     ("scan", "color_mode"): {"color", "gray", "bw"},
     ("scan", "page_size"): {"auto", "letter", "a4", "legal"},
+    ("smb_poll", "after_delivery"): {"move", "delete"},
+    ("imap_receive", "security"): {"ssl", "starttls"},
 }
 RANGES = {
     ("web", "port"): (1, 65535),
@@ -46,11 +49,19 @@ RANGES = {
     ("monitor", "poll_interval"): (1, 3600),
     ("monitor", "settle_time"): (0, 60),
     ("folder_watch", "poll_interval"): (1, 3600),
+    ("smb_poll", "port"): (1, 65535),
+    ("smb_poll", "poll_interval"): (5, 3600),
+    ("imap_receive", "port"): (1, 65535),
+    ("imap_receive", "poll_interval"): (10, 3600),
 }
 LABELS = {
     "output.folder": "Folder",
     "web.port": "Web port",
     "ftp_receive.port": "FTP port",
+    "smb_poll.port": "SMB port",
+    "smb_poll.poll_interval": "SMB poll interval",
+    "imap_receive.port": "Mail port",
+    "imap_receive.poll_interval": "Mail poll interval",
     "scan.resolution": "Resolution",
     "paperless.api_url": "Paperless-NGX address",
     "web.bind": "Network access",
@@ -186,6 +197,10 @@ def redacted_config(cfg: AppConfig) -> dict:
     data["paperless"]["api_token"] = ""
     data["ftp_receive"]["has_password"] = bool(cfg.ftp_receive.password)
     data["ftp_receive"]["password"] = ""
+    data["smb_poll"]["has_password"] = bool(cfg.smb_poll.password)
+    data["smb_poll"]["password"] = ""
+    data["imap_receive"]["has_password"] = bool(cfg.imap_receive.password)
+    data["imap_receive"]["password"] = ""
     data["web"]["has_token"] = bool(cfg.web.api_token)
     data["web"]["api_token"] = ""
     data["web"]["has_scan_token"] = bool(cfg.web.scan_token)

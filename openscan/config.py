@@ -74,6 +74,36 @@ class FtpReceiveConfig:
 
 
 @dataclass
+class SmbPollConfig:
+    """Poll a folder on an SMB share (a NAS) where the scanner saves files."""
+    enabled: bool = False
+    server: str = ""
+    share: str = ""
+    path: str = ""  # folder inside the share; "" = the share root
+    username: str = ""
+    password: str = ""
+    domain: str = ""
+    port: int = 445
+    poll_interval: float = 30.0
+    after_delivery: str = "move"  # "move" (to a "processed" subfolder) or "delete"
+
+
+@dataclass
+class ImapReceiveConfig:
+    """Poll a mailbox and deliver PDF and image attachments."""
+    enabled: bool = False
+    host: str = ""
+    port: int = 993
+    security: str = "ssl"  # "ssl" or "starttls"
+    username: str = ""
+    password: str = ""
+    folder: str = "INBOX"
+    allowed_senders: list[str] = field(default_factory=list)  # empty = anyone
+    poll_interval: float = 60.0
+    move_to_folder: str = "Processed"  # "" = only mark the message as seen
+
+
+@dataclass
 class WebConfig:
     bind: str = "127.0.0.1"  # "0.0.0.0" for LAN access
     port: int = 8020
@@ -122,6 +152,8 @@ class AppConfig:
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
     folder_watch: FolderWatchConfig = field(default_factory=FolderWatchConfig)
     ftp_receive: FtpReceiveConfig = field(default_factory=FtpReceiveConfig)
+    smb_poll: SmbPollConfig = field(default_factory=SmbPollConfig)
+    imap_receive: ImapReceiveConfig = field(default_factory=ImapReceiveConfig)
     web: WebConfig = field(default_factory=WebConfig)
     scan: ScanDefaults = field(default_factory=ScanDefaults)
     homeassistant: HomeAssistantConfig = field(default_factory=HomeAssistantConfig)
@@ -401,6 +433,8 @@ def _dict_to_config(data: dict) -> AppConfig:
         "monitor": MonitorConfig,
         "folder_watch": FolderWatchConfig,
         "ftp_receive": FtpReceiveConfig,
+        "smb_poll": SmbPollConfig,
+        "imap_receive": ImapReceiveConfig,
         "web": WebConfig,
         "scan": ScanDefaults,
         "homeassistant": HomeAssistantConfig,
