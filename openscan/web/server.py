@@ -44,6 +44,7 @@ PAGES = {
     "/dashboard": "templates/dashboard.html",
     "/wizard": "templates/wizard.html",
     "/settings": "templates/settings.html",
+    "/profiles": "templates/profiles.html",
 }
 LOGIN_PAGE = "templates/login.html"
 
@@ -506,6 +507,7 @@ def load_routes() -> None:
     from . import wizard_api  # noqa: F401
     from . import dashboard_api  # noqa: F401
     from . import settings_api  # noqa: F401
+    from . import profiles_api  # noqa: F401
     from .. import edition
     if edition.has("homeassistant"):
         try:

@@ -5,8 +5,10 @@ They need the access token in the ``X-OpenScan-Token`` header (or
 ``Authorization: Bearer``) or as ``?token=``, so Home Assistant's
 ``rest_command`` can call them. A browser session cookie is not enough.
 
-- ``GET|POST /api/ha/scan?source=adf|flatbed`` starts a scan and returns at
-  once (202); 409 when the scanner is busy.
+- ``GET|POST /api/ha/scan?source=adf|flatbed&profile=<id or name>`` starts
+  a scan and returns at once (202); 409 when the scanner is busy, 404 when
+  no profile has that id or name. Without ``profile`` the default profile
+  is used. A profile with a fixed source ignores ``source``.
 - ``GET /api/ha/health`` reports whether the scanner is reachable.
 """
 
@@ -24,18 +26,31 @@ def enabled(config: AppConfig) -> bool:
 
 
 def _scan(handler, query):
-    from ..web.dashboard_api import BUSY_MESSAGE, parse_source, start_scan_async
+    from .. import profiles
+    from ..web.dashboard_api import BUSY_MESSAGE, pick_source, start_scan_async, web_started_by
+    from ..web.server import BadRequest, get_config
 
-    source = parse_source((query.get("source") or ["flatbed"])[0])
-    if handler.command == "POST" and not query.get("source"):
-        from ..web.server import BadRequest
+    params = {k: (v or [""])[0] for k, v in query.items()}
+    if handler.command == "POST":
         try:
             body = handler.read_json_body()
         except BadRequest:
             body = {}
-        source = parse_source(body.get("source", "flatbed"))
-    if start_scan_async(source):
-        handler._send_json({"started": True, "source": "adf" if source.value == "Feeder" else "flatbed"},
+        for key in ("source", "profile"):
+            if not params.get(key) and isinstance(body.get(key), str):
+                params[key] = body[key]
+    config = get_config()
+    wanted = (params.get("profile") or "").strip()
+    profile = profiles.find(config, wanted) if wanted else profiles.get(config)
+    if profile is None:
+        handler._send_json({"started": False, "error": f"No profile is named {wanted!r}"},
+                           status=404)
+        return
+    profile = profiles.live(config, profile)
+    source = pick_source(config, profile, params.get("source") or "flatbed")
+    if start_scan_async(source, started_by=web_started_by(handler), profile=profile):
+        handler._send_json({"started": True, "profile": profile.id,
+                            "source": "adf" if source.value == "Feeder" else "flatbed"},
                            status=202)
     else:
         handler._send_json({"started": False, "error": BUSY_MESSAGE}, status=409)
