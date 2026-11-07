@@ -60,6 +60,11 @@ Rules:
 - The retry queue retries from `source_path` only while the bytes are the
   original bytes. After processing changes them, the queue keeps a copy.
 - The queue file never holds secrets. A retry gets them from the config.
+- An input (SMB poll, mailbox, FTP, folder watch) clears or forgets its copy
+  only when `intake.handled(result)` is true: every document was delivered
+  or is in the retry queue.
+- If `handle_scan` itself raises, the feeder monitor puts the raw bytes in
+  the retry queue with `intake.queue_unprocessed`.
 
 ## Profiles
 
@@ -111,7 +116,10 @@ removes pages adds the number to `result.pages_removed`.
    `option_field(key, label, kind, required=..., default=..., choices=...)`.
    The kinds are text, password, path, bool, choice and list.
 3. Write `deliver(pdf, filename, options) -> (location, confirmed)`. Raise
-   `DeliveryError` with a plain sentence when it fails.
+   `DeliveryError` with a plain sentence when it fails. `deliver_all` also
+   treats any other exception as a failed delivery: the scan goes to the
+   retry queue, the next destination is tried, and the log shows only the
+   class name of the error.
 4. Write `test(options) -> {"ok": bool, "message": str}`.
 5. Add the module name to `_MODULES` in `openscan/destinations/__init__.py`.
 

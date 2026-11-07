@@ -65,7 +65,7 @@ Both ways send the file through the same steps as every other scan: processing, 
 
 OpenScanHub checks the folder at the interval you set. It takes a file when the size and time stay the same across two checks. Then the file is not still being written.
 
-OpenScanHub writes the name, size and time of each delivered file to a state file in its config folder. It never delivers the same file twice, also after a restart. If the move or delete fails, OpenScanHub tries again but does not deliver the file again.
+OpenScanHub writes the name, size and time of each delivered file to a state file in its config folder. It never delivers the same file twice, also after a restart. It counts a file as handled only when every document was delivered or is in the retry queue. If the retry queue cannot store a document (for example the disk is full), the next poll tries the file again. If the move or delete fails, OpenScanHub tries again but does not deliver the file again.
 
 The poll reads PDF, JPEG, PNG and TIFF files in the one folder. It does not read subfolders.
 

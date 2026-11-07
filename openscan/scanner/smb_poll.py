@@ -263,7 +263,7 @@ def _deliver(config: AppConfig, name: str, sig: tuple) -> bool:
     if result.ok:
         logger.info("SMB scan routed: %s", filename)
         return True
-    if result.queued:
+    if intake.handled(result):
         logger.warning("SMB scan %s is in the retry queue: %s", filename, "; ".join(result.errors))
         return True
     logger.error("Could not deliver %s: %s", filename, "; ".join(result.errors))

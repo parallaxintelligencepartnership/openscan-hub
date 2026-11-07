@@ -246,27 +246,33 @@ def _watcher_loop(config: AppConfig, processed: dict[str, tuple]) -> None:
                     if seen.get(key) != sig:
                         continue  # new or still changing; check again next poll
                     logger.info("New file detected: %s", f.name)
-                    _process_file(config, f)
-                    processed[key] = sig
+                    if _process_file(config, f):
+                        processed[key] = sig
+                    # else: neither delivered nor queued; try again next poll
                 seen = current
         except Exception as e:
             logger.error("Folder watcher error: %s", e)
         _stop_event.wait(interval)
 
 
-def _process_file(config: AppConfig, file_path: Path) -> None:
-    """Route a new file. The file in the watched folder is never deleted."""
+def _process_file(config: AppConfig, file_path: Path) -> bool:
+    """Route a new file. The file in the watched folder is never deleted.
+    Returns True when the file is handled (delivered or in the retry queue)."""
     try:
         data = file_path.read_bytes()
     except OSError as e:
         logger.error("Could not read %s: %s", file_path, e)
-        return
+        return False
     if not data:
-        return
+        return True  # nothing to deliver; look again when it changes
     # No source_path: the queue keeps its own copy, so a failed delivery
     # survives even if the user tidies up the watched folder.
-    result = intake.handle_scan(config, data, source="folder_watch", started_by="folder watch",
-                                filename=file_path.name)
+    try:
+        result = intake.handle_scan(config, data, source="folder_watch",
+                                    started_by="folder watch", filename=file_path.name)
+    except Exception as e:
+        logger.error("Could not route %s: %s", file_path.name, type(e).__name__)
+        return False
     filename = result.filename or file_path.name
     if result.ok:
         logger.info("Processed: %s (%d bytes)", filename, len(data))
@@ -286,3 +292,4 @@ def _process_file(config: AppConfig, file_path: Path) -> None:
         })
     except Exception:
         pass
+    return intake.handled(result)

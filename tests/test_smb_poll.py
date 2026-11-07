@@ -265,3 +265,31 @@ def test_state_file_round_trip(config_dir):
     smb_poll.save_state({"k": [1, 2]})
     assert json.loads((config_dir / smb_poll.STATE_FILE).read_text()) == {"k": [1, 2]}
     assert smb_poll.load_state() == {"k": [1, 2]}
+
+
+def test_raising_second_destination_gives_one_copy_and_a_queue_entry(box, tmp_path, queue):
+    # Review probe p5: [folder, WebDAV with a port that is not a number] made a
+    # new folder copy on every poll.
+    from openscan.profiles import Profile
+    cfg, folder = box
+    out = tmp_path / "dup"
+    cfg.profiles = [Profile(id="p", name="P", follow_settings=False, destinations=[
+        {"type": "folder", "options": {"folder": str(out)}},
+        {"type": "webdav", "options": {"url": "https://nas.example:dav/remote.php"}}])]
+    cfg.default_profile_id = "p"
+    (folder / "c.pdf").write_bytes(PDF)
+    polls(cfg, 6, {}, {})
+    assert sorted(p.name for p in out.iterdir()) == ["c.pdf"]
+    assert not (folder / "c.pdf").exists()
+    assert [e["destination"] for e in queue.pending()] == ["webdav"]
+
+
+def test_document_neither_delivered_nor_queued_is_not_marked_handled(box, monkeypatch):
+    from openscan import intake
+    from test_intake import partial_result
+    cfg, folder = box
+    monkeypatch.setattr(intake, "handle_scan", lambda *a, **k: partial_result())
+    (folder / "h.pdf").write_bytes(PDF)
+    state = {}
+    polls(cfg, 3, {}, state)
+    assert not state and (folder / "h.pdf").exists()

@@ -254,7 +254,18 @@ def _deliver_auto_scan(config: AppConfig, pdf_data: bytes, profile=None) -> bool
         result = intake.handle_scan(config, pdf_data, source="adf", profile=profile,
                                     started_by="feeder monitor")
     except Exception as e:
-        logger.error("Auto-scan could not be saved: %s", e)
+        # Keep the scan: the retry queue holds the raw bytes for every target.
+        logger.error("Auto-scan could not be saved: %s", type(e).__name__)
+        name = datetime.now().strftime("scan_%Y-%m-%d_%H%M%S.pdf")
+        try:
+            queued = intake.queue_unprocessed(
+                config, pdf_data, profile, name,
+                f"The scan could not be processed ({type(e).__name__}).")
+        except Exception as e2:
+            queued = False
+            logger.error("Could not queue the auto-scan: %s", type(e2).__name__)
+        if queued:
+            logger.warning("Auto-scan %s is in the retry queue without processing", name)
         return False
 
     filename = getattr(result, "filename", "") or "scan"

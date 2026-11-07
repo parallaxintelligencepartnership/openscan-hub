@@ -329,3 +329,60 @@ def test_next_feed_changed_during_scan_is_kept(setup, tmp_path, monkeypatch):
     assert _wait_for(lambda: len(saved) == 1)
     time.sleep(0.2)
     assert feed.next_profile_id() == "photos"
+
+
+# --- review probes: a destination that raises must not lose a feeder scan ----
+
+def _two_target_profile(first, out):
+    return Profile(id="p", name="P", follow_settings=False,
+                   destinations=[first, {"type": "folder", "options": {"folder": str(out)}}])
+
+
+@pytest.fixture
+def real_queue(tmp_path, monkeypatch, config_dir):
+    from openscan import retry_queue
+    q = retry_queue.RetryQueue(tmp_path / "q" / "retry_queue.json", tmp_path / "q" / "files")
+    monkeypatch.setattr(retry_queue, "_queue", q)
+    yield q
+    q.stop()
+
+
+def test_non_ascii_email_password_still_saves_and_queues(tmp_path, real_queue):
+    from test_destination_email import _Sink
+    sink = _Sink()
+    threading.Thread(target=sink.serve_forever, daemon=True).start()
+    try:
+        out = tmp_path / "out"
+        cfg = AppConfig()
+        p = _two_target_profile({"type": "email", "options": {
+            "host": "127.0.0.1", "port": str(sink.port), "security": "none", "username": "bob",
+            "password": "pässwort", "from": "a@example.com", "to": ["c@example.com"]}}, out)
+        assert monitor._deliver_auto_scan(cfg, b"%PDF-1.4 feeder\n%%EOF", p) is True
+    finally:
+        sink.shutdown()
+        sink.server_close()
+    assert len(list(out.iterdir())) == 1
+    assert [e["destination"] for e in real_queue.pending()] == ["email"]
+
+
+def test_bad_webdav_port_still_saves_and_queues(tmp_path, real_queue):
+    out = tmp_path / "out"
+    p = _two_target_profile({"type": "webdav", "options": {"url": "https://nas.example:dav/x"}}, out)
+    assert monitor._deliver_auto_scan(AppConfig(), b"%PDF-1.4 feeder\n%%EOF", p) is True
+    assert len(list(out.iterdir())) == 1
+    assert [e["destination"] for e in real_queue.pending()] == ["webdav"]
+
+
+def test_scan_is_queued_raw_when_intake_raises(tmp_path, real_queue, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("bug")
+
+    monkeypatch.setattr(monitor.intake, "handle_scan", boom)
+    out = tmp_path / "out"
+    p = Profile(id="p", name="P", follow_settings=False,
+                destinations=[{"type": "folder", "options": {"folder": str(out)}}])
+    monitor._deliver_auto_scan(AppConfig(), b"%PDF-1.4 raw feeder", p)
+    [entry] = real_queue.pending()
+    assert entry["destination"] == "folder"
+    from pathlib import Path
+    assert Path(entry["file"]).read_bytes() == b"%PDF-1.4 raw feeder"

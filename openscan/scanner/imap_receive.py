@@ -248,7 +248,7 @@ def _deliver(config: AppConfig, filename: str, data: bytes) -> bool:
     if result.ok:
         logger.info("Mail scan routed: %s", filename)
         return True
-    if result.queued:
+    if intake.handled(result):
         logger.warning("Mail scan %s is in the retry queue", filename)
         return True
     logger.error("Could not deliver %s: %s", filename, "; ".join(result.errors))

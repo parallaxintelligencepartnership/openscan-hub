@@ -212,3 +212,16 @@ def test_passive_address_env_override(tmp_path, monkeypatch):
     from openscan.config import load_config
     monkeypatch.setenv("OPENSCAN_FTP_PASSIVE_ADDRESS", "192.168.1.9")
     assert load_config(tmp_path / "c.json").ftp_receive.passive_address == "192.168.1.9"
+
+
+def test_staged_file_kept_when_one_document_is_neither_delivered_nor_queued(tmp_path, queue,
+                                                                           monkeypatch):
+    from openscan import intake
+    from test_intake import partial_result
+    monkeypatch.setattr(intake, "handle_scan", lambda *a, **k: partial_result())
+    cfg = make_config(tmp_path)
+    staged = tmp_path / "staging" / "received" / "split.pdf"
+    staged.parent.mkdir(parents=True)
+    staged.write_bytes(PDF)
+    ftp_receive._process_received_file(cfg, staged)
+    assert staged.read_bytes() == PDF

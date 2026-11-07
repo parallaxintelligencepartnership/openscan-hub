@@ -75,10 +75,51 @@ class IntakeResult:
     documents: list[DocumentResult] = field(default_factory=list)
     uses_source: bool = False  # the retry queue retries from source_path
 
+    @property
+    def handled(self) -> bool:
+        return handled(self)
+
     def to_dict(self) -> dict:
         """The DeliveryResult shape the scan history stores."""
         return {"ok": self.ok, "saved_paths": list(self.saved_paths),
                 "errors": list(self.errors), "queued": self.queued}
+
+
+def handled(result) -> bool:
+    """True when OpenScanHub owns the scan from now on: every document was
+    delivered or is in the retry queue. An input may then clear its copy.
+
+    Accepts an IntakeResult, a DeliveryResult or any object with ok/queued.
+    """
+    docs = getattr(result, "documents", None)
+    if docs:
+        return all(d.delivery.ok or d.delivery.queued for d in docs)
+    return bool(getattr(result, "ok", False) or getattr(result, "queued", False))
+
+
+def targets(config, profile: Profile) -> list[dict]:
+    """The resolved {type, options} targets of `profile` in this edition."""
+    return _targets(config, profile)
+
+
+def queue_unprocessed(config, data: bytes, profile: Profile, filename: str, error: str) -> bool:
+    """Put raw scan bytes in the retry queue for every target of `profile`.
+
+    For a scan that intake could not handle at all. Returns True when queued.
+    """
+    items = []
+    for t in _targets(config, profile):
+        cls = destinations.get(t["type"])
+        items.append((t["type"], cls.target(t["options"]), cls.public_options(t["options"])))
+    if not items:
+        return False
+    from .retry_queue import get_queue
+    try:
+        get_queue().add(pdf_data=data, filename=filename, destinations=items, error=error)
+    except Exception as e:
+        logger.error("Could not queue %s for retry: %s", filename, type(e).__name__)
+        return False
+    return True
 
 
 def _page_count(pdf: bytes) -> int:

@@ -339,8 +339,8 @@ def _process_received_file(config: AppConfig, file_path: Path) -> None:
         return
 
     # The staged file can go once delivered, or once the retry queue holds
-    # its own copy (processing changed the bytes).
-    if result.ok or (result.queued and not result.uses_source):
+    # its own copy of every document that was not delivered.
+    if result.ok or (intake.handled(result) and not result.uses_source):
         logger.info("FTP scan routed: %s -> %s", filename, result.saved_paths)
         if delete:
             try:

@@ -251,3 +251,17 @@ def test_inline_logo_is_not_taken():
     # An attachment without a name is still an attachment and is taken.
     [(name, data)] = extract_attachments(parsed)
     assert data == PNG and name.startswith("attachment")
+
+
+def test_mail_stays_unseen_when_one_document_is_neither_delivered_nor_queued(
+        ssl_server, trust, tmp_path, monkeypatch, queue):
+    from openscan import intake
+    from test_intake import partial_result
+    ssl_server.add(make_mail())
+    cfg = config_for(ssl_server, tmp_path)
+    calls = []
+    monkeypatch.setattr(intake, "handle_scan", lambda *a, **k: calls.append(1) or partial_result())
+    assert imap_receive.poll_once(cfg) == 0
+    assert calls == [1]
+    [m] = ssl_server.messages("INBOX")
+    assert "\\Seen" not in m["flags"]

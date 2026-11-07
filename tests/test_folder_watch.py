@@ -118,3 +118,30 @@ def test_refuses_same_folder_reached_by_another_path(tmp_path, monkeypatch):
     assert "scans folder" in folder_watcher_error()
     cfg = cfg_for(tmp_path, alias / "in", real)  # inside, by another path
     assert start_folder_watcher(cfg) is False
+
+
+def test_file_neither_delivered_nor_queued_is_tried_again(tmp_path, monkeypatch):
+    from openscan import intake
+
+    real = intake.handle_scan
+    calls = []
+
+    def flaky(*a, **k):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("first try fails")
+        if len(calls) == 2:
+            return intake.IntakeResult(ok=False, errors=["disk full"])
+        return real(*a, **k)
+
+    monkeypatch.setattr(intake, "handle_scan", flaky)
+    watch, out = tmp_path / "in", tmp_path / "out"
+    watch.mkdir()
+    assert start_folder_watcher(cfg_for(tmp_path, watch, out))
+    (watch / "late.pdf").write_bytes(PDF)
+    end = time.monotonic() + 5
+    while time.monotonic() < end and not (out / "late.pdf").exists():
+        time.sleep(0.05)
+    time.sleep(0.3)
+    assert sorted(p.name for p in out.iterdir()) == ["late.pdf"]
+    assert len(calls) == 3

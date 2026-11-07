@@ -195,3 +195,31 @@ def test_result_reads_like_a_delivery_result(cfg):
     res = intake.handle_scan(cfg, _pdf(False), source="adf")
     assert json.loads(json.dumps(res.to_dict())) == {
         "ok": True, "saved_paths": res.saved_paths, "errors": [], "queued": False}
+
+
+def partial_result():
+    """Two documents: one in the retry queue, one neither delivered nor queued."""
+    from openscan.destinations import DeliveryResult
+    r = intake.IntakeResult(ok=False, queued=True, errors=["disk full"], filename="a_1.pdf")
+    r.documents = [
+        intake.DocumentResult("a_1.pdf", 1, 10, DeliveryResult(ok=False, queued=True)),
+        intake.DocumentResult("a_2.pdf", 1, 10, DeliveryResult(ok=False, queued=False)),
+    ]
+    return r
+
+
+def test_handled_needs_every_document_delivered_or_queued():
+    from openscan.destinations import DeliveryResult
+    assert intake.handled(partial_result()) is False
+    r = partial_result()
+    r.documents[1].delivery = DeliveryResult(ok=True)
+    assert intake.handled(r) is True and r.handled is True
+
+
+def test_raw_scan_is_queued_for_every_target(cfg, tmp_path, queue):
+    p = Profile(id="p", name="P", follow_settings=False,
+                destinations=[{"type": "folder", "options": {"folder": str(tmp_path / "x")}}])
+    assert intake.queue_unprocessed(cfg, b"%PDF-1.4 raw", p, "scan.pdf", "crash") is True
+    [entry] = queue.pending()
+    assert entry["destination"] == "folder"
+    assert Path(entry["file"]).read_bytes() == b"%PDF-1.4 raw"
