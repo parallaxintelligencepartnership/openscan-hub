@@ -57,6 +57,29 @@ const settings = {
         $('ftp-port').value = f.port;
         $('ftp-username').value = f.username;
         $('ftp-password').value = (this.secrets && this.secrets.ftp_password) || '';
+        const smb = c.smb_poll;
+        $('smb-enabled').checked = !!smb.enabled;
+        $('smb-server').value = smb.server || '';
+        $('smb-share').value = smb.share || '';
+        $('smb-path').value = smb.path || '';
+        $('smb-username').value = smb.username || '';
+        $('smb-password').value = '';
+        $('smb-password').placeholder = smb.has_password ? 'Saved. Leave blank to keep it.' : '';
+        $('smb-domain').value = smb.domain || '';
+        $('smb-interval').value = smb.poll_interval;
+        $('smb-after').value = smb.after_delivery;
+        const im = c.imap_receive;
+        $('imap-enabled').checked = !!im.enabled;
+        $('imap-host').value = im.host || '';
+        $('imap-security').value = im.security;
+        $('imap-port').value = im.port;
+        $('imap-username').value = im.username || '';
+        $('imap-password').value = '';
+        $('imap-password').placeholder = im.has_password ? 'Saved. Leave blank to keep it.' : '';
+        $('imap-folder').value = im.folder || '';
+        $('imap-senders').value = (im.allowed_senders || []).join(', ');
+        $('imap-move').value = im.move_to_folder || '';
+        $('imap-interval').value = im.poll_interval;
         $('folder-enabled').checked = !!c.folder_watch.enabled;
         $('watch-folder').value = c.folder_watch.watch_folder || '';
 
@@ -169,6 +192,29 @@ const settings = {
                 port: parseInt($('ftp-port').value, 10),
                 username: $('ftp-username').value.trim(),
                 password: $('ftp-password').value.trim(),
+            },
+            smb_poll: {
+                enabled: $('smb-enabled').checked,
+                server: $('smb-server').value.trim(),
+                share: $('smb-share').value.trim(),
+                path: $('smb-path').value.trim(),
+                username: $('smb-username').value.trim(),
+                password: $('smb-password').value,
+                domain: $('smb-domain').value.trim(),
+                poll_interval: parseFloat($('smb-interval').value),
+                after_delivery: $('smb-after').value,
+            },
+            imap_receive: {
+                enabled: $('imap-enabled').checked,
+                host: $('imap-host').value.trim(),
+                security: $('imap-security').value,
+                port: parseInt($('imap-port').value, 10),
+                username: $('imap-username').value.trim(),
+                password: $('imap-password').value,
+                folder: $('imap-folder').value.trim(),
+                allowed_senders: $('imap-senders').value,
+                move_to_folder: $('imap-move').value.trim(),
+                poll_interval: parseFloat($('imap-interval').value),
             },
             folder_watch: { enabled: $('folder-enabled').checked, watch_folder: $('watch-folder').value.trim() },
             homeassistant: { enabled: $('ha-enabled').checked },

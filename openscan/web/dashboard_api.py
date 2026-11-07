@@ -157,6 +157,16 @@ def clear_caps_cache() -> None:
         _caps_cache.clear()
 
 
+def _service_value(modpath: str, fn: str):
+    """Value of a plain status function of a service module (None if absent)."""
+    import importlib
+    try:
+        func = getattr(importlib.import_module(modpath), fn, None)
+        return func() if func else None
+    except Exception:
+        return None
+
+
 def _service_running(modpath: str, fn: str) -> Optional[bool]:
     import importlib
     try:
@@ -386,6 +396,21 @@ def api_status(handler, query):
                 "enabled": config.folder_watch.enabled,
                 "running": _service_running("openscan.scanner.folder_watch", "folder_watcher_running"),
                 "folder": config.folder_watch.watch_folder,
+            },
+            "smb": {
+                "enabled": config.smb_poll.enabled,
+                "running": _service_running("openscan.scanner.smb_poll", "smb_poll_running"),
+                "server": config.smb_poll.server,
+                "share": config.smb_poll.share,
+                "path": config.smb_poll.path,
+                "error": _service_value("openscan.scanner.smb_poll", "smb_poll_last_error"),
+            },
+            "email": {
+                "enabled": config.imap_receive.enabled,
+                "running": _service_running("openscan.scanner.imap_receive", "imap_receive_running"),
+                "host": config.imap_receive.host,
+                "folder": config.imap_receive.folder,
+                "error": _service_value("openscan.scanner.imap_receive", "imap_receive_last_error"),
             },
         },
     }

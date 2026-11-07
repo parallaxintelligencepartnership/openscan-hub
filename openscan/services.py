@@ -66,6 +66,18 @@ SERVICES: list[Service] = [
         error_fn="ftp_receiver_error",
     ),
     Service(
+        "SMB share poll", "openscan.scanner.smb_poll", "start_smb_poll", "stop_smb_poll",
+        lambda c: c.wizard_completed and c.smb_poll.enabled,
+        ("smb_poll",) + DELIVERY,
+        error_fn="smb_poll_error",
+    ),
+    Service(
+        "email receiver", "openscan.scanner.imap_receive", "start_imap_receive", "stop_imap_receive",
+        lambda c: c.wizard_completed and c.imap_receive.enabled,
+        ("imap_receive",) + DELIVERY,
+        error_fn="imap_receive_error",
+    ),
+    Service(
         "retry queue", "openscan.retry_queue", "start", "stop",
         lambda c: True,
         ("output", "paperless"),
