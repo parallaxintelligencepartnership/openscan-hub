@@ -40,6 +40,15 @@ def _restore_root_logging():
     logging_setup._handlers.clear()
 
 
+@pytest.fixture(autouse=True)
+def _clear_next_feed():
+    """The next-feed choice is process-wide; start and end each test without it."""
+    from openscan import feed
+    feed.clear()
+    yield
+    feed.clear()
+
+
 @pytest.fixture
 def config_dir(tmp_path, monkeypatch):
     """An empty config folder used by get_config_dir()."""

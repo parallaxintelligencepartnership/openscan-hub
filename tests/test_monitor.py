@@ -7,8 +7,9 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from openscan import monitor, multipage
+from openscan import feed, monitor, multipage
 from openscan.config import AppConfig
+from openscan.profiles import Profile
 from openscan.scanner.base import AdfState, ScannerState, ScannerStatus, ScanSource, scan_lock
 
 
@@ -242,3 +243,89 @@ def test_scanner_lock_is_released_before_delivery(setup, monkeypatch):
     assert _wait_for(lambda: len(lock_free_during_delivery) == 1)
     assert lock_free_during_delivery == [True]
     assert fake.lock_free_during_scan == [False]
+
+
+# --- next feed profile ---------------------------------------------------------
+
+def _two_profiles(cfg, tmp_path):
+    cfg.profiles = [
+        Profile(id="default", name="Default", color_mode="color",
+                destinations=[{"type": "folder", "options": {"folder": str(tmp_path / "d")}}]),
+        Profile(id="photos", name="Photos", color_mode="gray", resolution=600,
+                destinations=[{"type": "folder", "options": {"folder": str(tmp_path / "p")}}]),
+    ]
+    cfg.default_profile_id = "default"
+
+
+def _feed_one_batch(fake, saved, n):
+    polls = fake.polls
+    assert _wait_for(lambda: fake.polls >= polls + 3)  # the monitor sees an empty feeder first
+    fake.adf = AdfState.LOADED
+    assert _wait_for(lambda: len(saved) == n)
+
+
+def test_next_feed_profile_is_used_once_then_default(setup, tmp_path):
+    fake, saved, cfg = setup
+    _two_profiles(cfg, tmp_path)
+    feed.set_next("photos")
+    monitor.start_monitor(cfg)
+    _feed_one_batch(fake, saved, 1)
+    first = fake.scans[0]
+    assert (first.color_mode, first.resolution) == ("gray", 600)
+    assert saved[0]["profile"].id == "photos"
+    assert saved[0]["profile"].destinations[0]["options"]["folder"].endswith("p")
+    assert saved[0]["started_by"] == "feeder monitor"
+    assert _wait_for(lambda: feed.peek() is None)  # cleared after delivery
+    _feed_one_batch(fake, saved, 2)
+    second = fake.scans[1]
+    assert (second.color_mode, second.resolution) == ("color", 300)
+    assert saved[1]["profile"].id == "default"
+    assert saved[1]["profile"].destinations[0]["options"]["folder"].endswith("d")
+
+
+def test_next_feed_expired_falls_back_to_default(setup, tmp_path, monkeypatch):
+    fake, saved, cfg = setup
+    _two_profiles(cfg, tmp_path)
+    clock = [1000.0]
+    monkeypatch.setattr(feed, "_now", lambda: clock[0])
+    feed.set_next("photos")
+    clock[0] += feed.TTL_SECONDS + 1
+    monitor.start_monitor(cfg)
+    _feed_one_batch(fake, saved, 1)
+    assert saved[0]["profile"].id == "default"
+
+
+def test_next_feed_stays_when_delivery_raises(setup, tmp_path, monkeypatch):
+    fake, saved, cfg = setup
+    _two_profiles(cfg, tmp_path)
+
+    def boom(*a, **k):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(monitor.intake, "handle_scan", boom)
+    feed.set_next("photos")
+    monitor.start_monitor(cfg)
+    assert _wait_for(lambda: fake.polls >= 2)
+    fake.adf = AdfState.LOADED
+    assert _wait_for(lambda: len(fake.scans) == 1)
+    time.sleep(0.2)
+    assert feed.next_profile_id() == "photos"
+
+
+def test_next_feed_changed_during_scan_is_kept(setup, tmp_path, monkeypatch):
+    fake, saved, cfg = setup
+    _two_profiles(cfg, tmp_path)
+    feed.set_next("default")
+    real = monitor.intake.handle_scan
+
+    def deliver(cfg_, pdf, **kw):
+        feed.set_next("photos")  # the user picks again while this batch is delivered
+        return real(cfg_, pdf, **kw)
+
+    monkeypatch.setattr(monitor.intake, "handle_scan", deliver)
+    monitor.start_monitor(cfg)
+    assert _wait_for(lambda: fake.polls >= 2)
+    fake.adf = AdfState.LOADED
+    assert _wait_for(lambda: len(saved) == 1)
+    time.sleep(0.2)
+    assert feed.next_profile_id() == "photos"

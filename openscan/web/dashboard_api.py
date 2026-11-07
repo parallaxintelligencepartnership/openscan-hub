@@ -10,7 +10,7 @@ from typing import Any, Optional
 from .. import __version__
 from .. import multipage
 from ..config import AppConfig, config_dir_writable
-from .. import intake, profiles
+from .. import feed, intake, profiles
 from ..profiles import Profile
 from ..scanner.base import (
     ScannerInfo, ScanSettings, ScanSource, release_scan, scan_lock, try_acquire_scan,
@@ -497,6 +497,68 @@ def api_history(handler, query):
         limit = 20
     with _history_lock:
         handler._send_json({"scans": _scan_history[:limit], "total": len(_scan_history)})
+
+
+# --- next feed ----------------------------------------------------------------
+
+def _next_feed() -> dict:
+    """The next-feed choice as the API shows it."""
+    config = get_config()
+    found = feed.peek()
+    profile = None
+    if found:
+        try:
+            stored = _profile_for(config, found[0])
+        except BadRequest:  # the profile was deleted since
+            stored, found = None, None
+        if stored:
+            profile = {"id": stored.id, "name": stored.name}
+    return {"next_profile": profile, "expires_in_seconds": found[1] if found else 0}
+
+
+def _result_word(entry: dict) -> str:
+    if entry.get("ok"):
+        return "ok"
+    return "queued" if entry.get("queued") else "failed"
+
+
+@route("GET", "/api/feed")
+def api_feed(handler, query):
+    """What the phone page shows: the next-feed profile, the feeder and
+    scanner state, and the last five scans."""
+    config = get_config()
+    data = _next_feed()
+    adf_state, scanner_state = "Unknown", "Unknown"
+    if scanner_mode(config) == "scanner":
+        try:
+            status = _impl(config.scanner.protocol).get_status(_scanner_info(config))
+            adf_state, scanner_state = status.adf_state.value, status.state.value
+        except Exception:
+            scanner_state = "Offline"
+    data["adf_state"] = adf_state
+    data["scanner_state"] = scanner_state
+    data["monitor_enabled"] = config.monitor.enabled
+    with _history_lock:
+        recent = list(_scan_history[:5])
+    data["last_scans"] = [{
+        "file": e.get("filename", ""),
+        "time": e.get("timestamp", ""),
+        "profile": e.get("profile", ""),
+        "result": _result_word(e),
+    } for e in recent]
+    handler._send_json(data)
+
+
+@route("POST", "/api/feed/next")
+def api_feed_next(handler, query):
+    """Body: {"profile_id": id} sets the profile for the next feeder batch.
+    {"profile_id": null} clears it."""
+    body = handler.read_json_body()
+    if "profile_id" not in body:
+        raise BadRequest("Missing profile_id")
+    profile = _profile_for(get_config(), body["profile_id"])
+    feed.set_next(profile.id if profile else None)
+    handler._send_json(_next_feed())
 
 
 # --- multi-page ---------------------------------------------------------------
