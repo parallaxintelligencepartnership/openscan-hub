@@ -3,6 +3,8 @@
 FROM python:3.13-slim
 
 ARG VERSION=0.3.2
+# homelab (default) or office. See docs/editions.md.
+ARG EDITION=homelab
 
 LABEL org.opencontainers.image.title="OpenScanHub" \
       org.opencontainers.image.description="Network scanner bridge: scans land in a folder, a NAS share or Paperless-NGX" \
@@ -29,6 +31,15 @@ RUN pip install --require-hashes -r requirements.lock
 
 COPY LICENSE THIRD_PARTY_NOTICES.md ./
 COPY openscan/ openscan/
+
+# Office edition: write the edition and delete the Home Assistant and
+# Paperless-NGX modules, so the code is not in the image.
+RUN if [ "$EDITION" = "office" ]; then \
+        python -m openscan.edition --set office \
+        && rm -rf openscan/integrations openscan/destinations/paperless.py; \
+    elif [ "$EDITION" != "homelab" ]; then \
+        echo "EDITION must be homelab or office" >&2; exit 1; \
+    fi
 
 # The `openscan` command (for example `docker exec openscan-hub openscan
 # --show-token`). A wrapper rather than `pip install .`, which would fetch an
