@@ -91,6 +91,12 @@ class ScanDefaults:
 
 
 @dataclass
+class NamingConfig:
+    # Vendor names the {vendor} name field looks for in the scanned text.
+    vendors: list[str] = field(default_factory=list)
+
+
+@dataclass
 class HomeAssistantConfig:
     enabled: bool = False
 
@@ -119,6 +125,7 @@ class AppConfig:
     scan: ScanDefaults = field(default_factory=ScanDefaults)
     homeassistant: HomeAssistantConfig = field(default_factory=HomeAssistantConfig)
     audit: AuditConfig = field(default_factory=AuditConfig)
+    naming: NamingConfig = field(default_factory=NamingConfig)
     log_level: str = "INFO"
     # Scan profiles (openscan.profiles.Profile). load_config adds a "Default"
     # profile that follows the sections above when the file has none.
@@ -393,6 +400,7 @@ def _dict_to_config(data: dict) -> AppConfig:
         "scan": ScanDefaults,
         "homeassistant": HomeAssistantConfig,
         "audit": AuditConfig,
+        "naming": NamingConfig,
     }
     for name, cls in sections.items():
         raw = data.get(name)

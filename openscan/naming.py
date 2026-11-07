@@ -3,7 +3,8 @@
 Fields: {date} {time} {n} {profile} {source}, plus whatever field providers
 add (for example {doc_date}, {title}, {vendor} from text recognition).
 A date or datetime value takes a strftime format: {date:%Y-%m}.
-A missing or empty field becomes "unknown". The result is safe as a file
+A missing or empty field becomes "unknown", or the rule's own text
+after "|": {vendor|no-vendor}. The result is safe as a file
 name on Windows and Linux and at most MAX_LENGTH characters long.
 """
 
@@ -22,7 +23,8 @@ FALLBACK = "unknown"
 DEFAULT_RULE = "scan_{date}_{time}_{n}"
 BASE_FIELDS = ("date", "time", "n", "profile", "source")
 
-_FIELD_RE = re.compile(r"\{(\w+)(?::([^{}]*))?\}")
+# {field}, {field:format}, {field|fallback text}, {field:format|fallback text}
+_FIELD_RE = re.compile(r"\{(\w+)(?::([^{}|]*))?(?:\|([^{}]*))?\}")
 _BAD_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f\x7f]')
 _RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
              *(f"LPT{i}" for i in range(1, 10))}
@@ -108,14 +110,18 @@ def render(template: str, fields: Optional[dict] = None, extension: str = EXTENS
     """Fill `template` from `fields` and return a safe file name.
 
     Missing base fields get today's values (date, time), 1 (n) or the
-    fallback text; any other missing or empty field is "unknown".
+    fallback text; any other missing or empty field is the text after "|"
+    in the rule, else "unknown".
     """
     values = base_fields()
     values.update(fields or {})
 
     def replace(m: re.Match) -> str:
-        key, spec = m.group(1), m.group(2)
-        return _format(key, values.get(key), spec)
+        key, spec, fallback = m.group(1), m.group(2), m.group(3)
+        value = values.get(key)
+        if fallback is not None and (value is None or value == ""):
+            return fallback
+        return _format(key, value, spec)
 
     name = _FIELD_RE.sub(replace, template or DEFAULT_RULE)
     return sanitize(name, extension)
