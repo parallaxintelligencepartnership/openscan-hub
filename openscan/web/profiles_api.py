@@ -15,8 +15,10 @@ preview, destination forms and tests, and the vendor list for {vendor}.
     GET  /api/naming/vendors               {"vendors": [...]}
     POST /api/naming/vendors               {"vendors": [...]}
 
-Secret options (FIELDS of kind password) are blank in every answer, with
-"has_<key>" telling whether one is stored. A blank secret in an update keeps
+Secret options (FIELDS of kind password, and secret-looking keys of types
+this edition does not ship) are blank in every answer, with "has_<key>"
+telling whether one is stored. The scan role gets only id, name, icon and
+show_on_home of each profile. A blank secret in an update keeps
 the stored one. Any edit turns follow_settings off: from then on the profile
 keeps its own values instead of following the Settings page.
 """
@@ -54,16 +56,24 @@ _edit_lock = threading.Lock()
 # --- output -------------------------------------------------------------------
 
 def public_profile(config, profile: Profile) -> dict:
-    """The profile as it applies now, with secrets blanked."""
+    """The profile as it applies now, with secrets blanked (also for
+    destination types this edition does not ship)."""
     data = profiles.live(config, profile).to_dict()
     for dest in data["destinations"]:
-        cls = destinations.get(dest.get("type", ""))
-        options = dest["options"]
-        for key in (cls.secret_keys() if cls else ()):
-            options[f"has_{key}"] = bool(options.get(key))
-            options[key] = ""
+        if isinstance(dest.get("options"), dict):
+            destinations.blank_secrets(str(dest.get("type", "")), dest["options"])
     data["is_default"] = profile.id == _default_id(config)
     return data
+
+
+# The scan role only needs these to draw the profile buttons.
+SCAN_ROLE_PROFILE_KEYS = ("id", "name", "icon", "show_on_home")
+
+
+def _scan_view(config) -> dict:
+    return {"profiles": [{k: getattr(p, k) for k in SCAN_ROLE_PROFILE_KEYS}
+                         for p in _stored(config)],
+            "default_profile_id": _default_id(config)}
 
 
 def _stored(config) -> list[Profile]:
@@ -282,6 +292,10 @@ def _get_stored(config, profile_id: str) -> Profile:
 
 @route("GET", "/api/profiles")
 def api_list(handler, query):
+    if getattr(handler, "request_role", None) == "scan":
+        # No destination options at all for the scan token.
+        handler._send_json(_scan_view(get_config()))
+        return
     handler._send_json(_listing(get_config()))
 
 

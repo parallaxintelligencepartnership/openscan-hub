@@ -105,6 +105,51 @@ def test_office_tree_imports_and_serves(office_tree, tmp_path):
     assert data["features"]["scan_role"] is True
 
 
+_LEAK = r"""
+import http.client, sys, threading
+sys.meta_path[:] = [f for f in sys.meta_path if "Editable" not in type(f).__name__ and "editable" not in getattr(f, "__module__", "")]
+from openscan import edition
+assert edition.current() == "office"
+from openscan.config import AppConfig
+from openscan.profiles import Profile
+from openscan.web import server as srv
+cfg = AppConfig()
+cfg.web.port = 0; cfg.web.api_token = "a" * 32; cfg.web.scan_token = "s" * 32
+cfg.web.advertise_mdns = False
+cfg.profiles = [Profile(id="p", name="Docs", follow_settings=False, destinations=[
+    {"type": "folder", "options": {"folder": "/tmp/x"}},
+    {"type": "paperless_api", "options": {"url": "http://paperless.example",
+                                          "token": "PAPERLESS-SECRET-123"}}])]
+cfg.default_profile_id = "p"
+server = srv.create_server(cfg)
+threading.Thread(target=server.serve_forever, daemon=True).start()
+for path, tok in (("/api/profiles", "s" * 32), ("/api/profiles", "a" * 32),
+                  ("/api/profiles/p", "a" * 32), ("/api/config", "a" * 32)):
+    c = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=10)
+    c.request("GET", path, headers={"X-OpenScan-Token": tok, "X-Forwarded-For": "10.0.0.9"})
+    r = c.getresponse()
+    body = r.read().decode()
+    print(path, tok[0], r.status, "PAPERLESS-SECRET-123" in body, "paperless.example" in body)
+server.shutdown()
+"""
+
+
+def test_office_blanks_secrets_of_paperless_destinations_it_does_not_ship(office_tree, tmp_path):
+    # A Homelab config moved to the Office build keeps its paperless_api
+    # destination (ignored). Its token must not show in any answer.
+    env = dict(os.environ, PYTHONPATH=str(office_tree), OPENSCAN_CONFIG_DIR=str(tmp_path / "cfg"))
+    env.pop("OPENSCAN_TOKEN", None)
+    (tmp_path / "cfg").mkdir()
+    out = subprocess.run([sys.executable, "-c", _LEAK], cwd=office_tree, env=env,
+                         capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr[-2000:]
+    rows = [line.split() for line in out.stdout.strip().splitlines()]
+    assert [r[:3] for r in rows] == [["/api/profiles", "s", "200"], ["/api/profiles", "a", "200"],
+                                     ["/api/profiles/p", "a", "200"], ["/api/config", "a", "200"]]
+    assert all(r[3] == "False" for r in rows), rows  # the token never shows
+    assert rows[0][4] == "False"  # the scan role gets no options at all
+
+
 def test_dockerfile_has_the_edition_arg_and_strip_step():
     text = (ROOT / "Dockerfile").read_text()
     assert "ARG EDITION=homelab" in text

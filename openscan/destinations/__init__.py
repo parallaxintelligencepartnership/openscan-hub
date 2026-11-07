@@ -13,6 +13,7 @@ from __future__ import annotations
 import importlib
 import logging
 import os
+import re
 import threading
 from dataclasses import asdict, dataclass, field
 from typing import Optional
@@ -23,7 +24,7 @@ from .base import DeliveryError, Destination, FIELD_KINDS, field as option_field
 __all__ = [
     "DeliveryError", "DeliveryResult", "Destination", "FIELD_KINDS", "option_field",
     "register", "get", "available", "all_types", "deliver_one", "deliver_all",
-    "resolve_options",
+    "resolve_options", "secret_option_keys", "blank_secrets",
 ]
 
 logger = logging.getLogger(__name__)
@@ -86,6 +87,40 @@ def all_types() -> list[str]:
     """Every registered type, including those this edition hides."""
     _load()
     return list(_registry)
+
+
+# --- secrets ---------------------------------------------------------------
+
+# Secret option keys of destination types that a build may not ship (an
+# Office build has no paperless.py). A config made by another edition still
+# holds their secrets, so they must be blanked without the class.
+KNOWN_SECRET_KEYS: dict[str, frozenset] = {"paperless_api": frozenset({"token"})}
+_SECRET_WORD = re.compile(r"password|token|secret|key", re.IGNORECASE)
+
+
+def secret_option_keys(type_: str, options: Optional[dict] = None) -> set[str]:
+    """Option keys of `type_` that hold a secret.
+
+    A type in this build: its password fields. A type not in this build:
+    every key whose name has password, token, secret or key in it. Both get
+    the static KNOWN_SECRET_KEYS too.
+    """
+    keys = set(KNOWN_SECRET_KEYS.get(type_, ()))
+    cls = get(type_)
+    if cls is not None:
+        keys |= cls.secret_keys()
+    else:
+        keys |= {k for k in (options or {})
+                 if isinstance(k, str) and not k.startswith("has_") and _SECRET_WORD.search(k)}
+    return keys
+
+
+def blank_secrets(type_: str, options: dict) -> dict:
+    """Blank the secrets in `options` in place and add has_<key> flags."""
+    for key in sorted(secret_option_keys(type_, options)):
+        options[f"has_{key}"] = bool(options.get(key))
+        options[key] = ""
+    return options
 
 
 # --- options ---------------------------------------------------------------

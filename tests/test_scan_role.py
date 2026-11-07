@@ -129,3 +129,18 @@ def test_show_token_scan(config_dir, capsys):
 
 def test_default_config_has_no_scan_token():
     assert AppConfig().web.scan_token == ""
+
+
+def test_scan_token_gets_no_destination_options(scan_server, app_config, tmp_path):
+    from openscan.profiles import Profile
+    app_config.profiles = [Profile(id="p", name="Docs", icon="D", follow_settings=False,
+                                   destinations=[{"type": "smb", "options": {
+                                       "server": "nas.example", "share": "s", "username": "u",
+                                       "password": "smb-secret-1"}}])]
+    app_config.default_profile_id = "p"
+    r = scan_server.get("/api/profiles", token=SCAN_TOKEN)
+    assert r.status == 200
+    data = r.json()
+    assert data["profiles"] == [{"id": "p", "name": "Docs", "icon": "D", "show_on_home": True}]
+    assert data["default_profile_id"] == "p"
+    assert b"nas.example" not in r.body and b"smb-secret-1" not in r.body

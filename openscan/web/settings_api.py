@@ -208,11 +208,8 @@ def redacted_config(cfg: AppConfig) -> dict:
     from .. import destinations
     for profile in data.get("profiles") or []:
         for dest in profile.get("destinations") or []:
-            cls = destinations.get(dest.get("type", ""))
-            options = dest.get("options") or {}
-            for key in (cls.secret_keys() if cls else ()):
-                options[f"has_{key}"] = bool(options.get(key))
-                options[key] = ""
+            if isinstance(dest, dict) and isinstance(dest.get("options"), dict):
+                destinations.blank_secrets(str(dest.get("type", "")), dest["options"])
     return data
 
 

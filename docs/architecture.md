@@ -126,7 +126,12 @@ removes pages adds the number to `result.pages_removed`.
 `destinations.available()` lists the types that this edition has. The
 registry finds each `Destination` subclass in a listed module. It skips a
 module that it cannot import. A field of kind `password` is not written to
-the retry queue and is blanked in `GET /api/config`.
+the retry queue. `destinations.blank_secrets` blanks it in every answer
+(`GET /api/config` and the profile routes). For a type that this build does
+not ship, it blanks every option key with password, token, secret or key in
+its name, and the keys in `KNOWN_SECRET_KEYS`. Add the secret keys of a new
+optional destination there. The scan role gets only `id`, `name`, `icon`
+and `show_on_home` of each profile.
 
 ## Add a name field
 

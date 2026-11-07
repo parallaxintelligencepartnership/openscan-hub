@@ -222,3 +222,21 @@ def test_profiles_page_and_dashboard_block(live_server):
     dash = live_server.get("/dashboard", token=TOKEN).body
     assert b'id="profile-buttons"' in dash and b"js/profiles.js" in dash
     assert b'href="profiles"' in live_server.get("/settings", token=TOKEN).body
+
+
+def test_secrets_of_types_not_in_this_build_are_blank(live_server, app_config):
+    # A config from a newer build or another edition can hold a type this
+    # build does not know. Keys that look secret are blanked too.
+    app_config.profiles = [Profile(id="p", name="P", follow_settings=False, destinations=[
+        {"type": "folder", "options": {"folder": "/tmp/x"}},
+        {"type": "future_cloud", "options": {"url": "https://c.example", "api_key": "K-111",
+                                             "client_secret": "S-222", "token": "T-333",
+                                             "password": "P-444"}}])]
+    app_config.default_profile_id = "p"
+    for path in ("/api/profiles", "/api/profiles/p", "/api/config"):
+        text = live_server.get(path, token=TOKEN).body.decode()
+        for secret in ("K-111", "S-222", "T-333", "P-444"):
+            assert secret not in text, (path, secret)
+        assert "https://c.example" in text
+    opts = live_server.get("/api/profiles/p", token=TOKEN).json()["profile"]["destinations"][1]["options"]
+    assert opts["has_api_key"] is True and opts["api_key"] == ""
