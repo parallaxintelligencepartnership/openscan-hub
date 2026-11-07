@@ -100,6 +100,8 @@ def _run_pyinstaller(pyi, root: Path, out_root: Path, edition: str):
         "--hidden-import", "pystray",
         "--hidden-import", "PIL",
         "--hidden-import", "pypdfium2",
+        "--hidden-import", "zxingcpp",
+        "--hidden-import", "PIL.ImageCms",
         "--collect-binaries", "pypdfium2_raw",
         *excludes,
         "--distpath", str(out_root / "dist"),

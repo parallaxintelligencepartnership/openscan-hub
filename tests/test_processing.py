@@ -32,7 +32,8 @@ def test_defaults_are_all_off_and_leave_bytes_alone():
     opts = ProcessOptions()
     assert opts.to_dict() == {"ocr": False, "ocr_languages": ["eng"], "deskew": False,
                               "auto_rotate": False, "remove_blank_pages": False, "crop": False,
-                              "compression": "none", "output_color": "keep", "pdfa": False}
+                              "compression": "none", "output_color": "keep", "pdfa": False,
+                              "separator_prefix": "OSH:"}
     assert processing.enabled_stages(opts) == []
     res = processing.run(b"%PDF-not-really", opts)
     assert res.pdf == b"%PDF-not-really" and res.warnings == [] and res.pages_removed == 0

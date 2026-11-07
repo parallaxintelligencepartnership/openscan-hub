@@ -152,6 +152,18 @@ The function gets `(pdf, process_result)` and returns a list of
 registered, returns nothing or raises, the scan stays one document and gets
 a warning.
 
+`openscan/separators.py` has two built-in splitters:
+
+- `blank`: a blank page ends a document. The splitter drops the page. For a
+  profile with this split, intake turns off `remove_blank_pages` for the run.
+- `barcode`: a page with a code that starts with
+  `ProcessOptions.separator_prefix` (default `OSH:`) ends a document. The
+  splitter drops the page. Pages with other codes stay. The text after the
+  prefix becomes the `{barcode}` name field of the next document.
+
+`GET /api/separator-sheet?label=Invoices` returns a printable Letter PDF with
+a QR code for `OSH:Invoices`.
+
 ## Audit log
 
 `openscan/audit.py` writes one JSON line for each delivered document to
@@ -191,5 +203,6 @@ wrappers. New code uses `intake.handle_scan` or `destinations`.
 
 | Date | Change |
 |---|---|
+| 2026-11-06 | Add the built-in separators and the separator sheet. |
 | 2026-11-06 | Add the next feed profile. |
 | 2026-11-06 | First version: intake, profiles, destinations, processing, naming, audit. |

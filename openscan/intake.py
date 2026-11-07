@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Callable, Optional
 
@@ -148,6 +148,9 @@ def handle_scan(config, data: bytes, *, source: str, profile: Optional[Profile] 
     now = datetime.now()
     warnings: list[str] = []
     opts = profile.processing
+    if (profile.split or "none") == "blank" and opts.remove_blank_pages:
+        # Blank separator sheets must reach the blank splitter, which drops them.
+        opts = replace(opts, remove_blank_pages=False)
     extension = ".pdf"
 
     # 1. ensure PDF. A dropped file that is not a PDF stays as it is when
@@ -232,3 +235,7 @@ def _written_name(saved_paths, default: str) -> str:
         if "://" not in p:
             return os.path.basename(p)
     return default
+
+
+# Registers the "blank" and "barcode" splitters and the {barcode} name field.
+from . import separators  # noqa: E402,F401
