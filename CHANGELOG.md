@@ -2,6 +2,55 @@
 
 All notable changes to OpenScanHub.
 
+## 0.4.0 (2026-11-06)
+
+OpenScanHub is now built around auto-feed scanning: put paper in the feeder,
+and it scans, cleans, reads, names and saves the file.
+
+### Added
+
+- Two editions from one codebase: Homelab and Office. Docker tags
+  `:0.4.0`, `:latest` (Homelab) and `:0.4.0-office`, `:office` (Office).
+  Windows files `OpenScanHub.exe` and `OpenScanHub-Office.exe`.
+- Office edition: an admin token and a scan token, the audit log on by
+  default, and no Home Assistant or Paperless-NGX code.
+- Scan profiles: a profile editor, dashboard buttons, and a profile API.
+  An old config gets one "Default" profile that follows the old Settings.
+- Next feed profile: pick a profile on the dashboard or the phone page,
+  then load the paper. The choice ends after one batch or 10 minutes.
+- Phone page at `/m`: scanner and feeder status, the profile picker, and
+  the last five scans. Installing it as an app needs HTTPS. Over plain HTTP
+  it works in the browser.
+- Processing: OCR to a searchable PDF, deskew, auto-rotate, crop, blank page
+  removal, gray and black-and-white, compression, and PDF/A. OCR needs
+  Tesseract. The Docker image has it. On Windows, you install it.
+- Separator pages: split one batch at blank sheets or at `OSH:` QR sheets.
+  Print a sheet from `/api/separator-sheet?label=`.
+- Smart file names: `{doc_date}`, `{title}`, `{vendor}`, `{barcode}`,
+  `{pages}`, and date formats such as `{doc_date:%Y-%m}`.
+- Destinations: SMB share, WebDAV and Nextcloud, and email.
+- Inputs: SMB share poll and an IMAP mailbox.
+- Scan audit log (`audit.jsonl`).
+- A retry queue that restarts delivery services when profiles change.
+- Guides: Docker, Windows, Office, feeder to share, and a glossary.
+
+### Changed
+
+- Blank page removal now runs once, in the processing step. The scanner
+  drivers no longer remove blank pages.
+- Blank page removal now also applies to files that arrive by FTP or from a
+  watched folder, when the option is on. Before, it did not.
+- Every finished scan goes through one function, `intake.handle_scan`.
+- Dependencies: pypdf stays on 6.x (6.21.4) and Pillow stays on 12.x
+  (12.3.0). pypdf 7 and Pillow 13 are not part of 0.4.0.
+
+### Notes
+
+- A scan with no OCR still saves when Tesseract is missing. It carries a
+  warning.
+- An Office build ignores Home Assistant and Paperless-NGX settings in an old
+  config file and keeps them in the file.
+
 ## 0.3.2 (2026-11-06)
 
 Dependency refresh. No behavior changes.
