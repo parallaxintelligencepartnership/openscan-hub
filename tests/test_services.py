@@ -84,6 +84,18 @@ def test_destination_change_restarts_delivering_services(fake_services):
     assert "FTP receiver" in services.apply_config(old, new)["restarted"]
 
 
+def test_profile_change_restarts_delivering_services(fake_services):
+    from openscan import profiles
+    old = _base()
+    old.ftp_receive.enabled = True
+    profiles.migrate(old)
+    new = copy.deepcopy(old)
+    new.profiles[0].name = "Renamed"
+    assert "FTP receiver" in services.apply_config(old, new)["restarted"]
+    same = copy.deepcopy(new)
+    assert services.apply_config(new, same)["restarted"] == []
+
+
 def test_missing_stop_function_is_tolerated(fake_services):
     mod = fake_services.module("openscan.scanner.ftp_receive")
     del mod.stop_ftp_receiver
