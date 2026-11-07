@@ -60,6 +60,8 @@ SCAN = "scan"
 SCAN_ROLE_ROUTES = (
     (("GET",), re.compile(r"^/api/profiles$")),
     (("POST",), re.compile(r"^/api/profiles/[^/]+/scan$")),
+    (("GET",), re.compile(r"^/api/feed$")),
+    (("POST",), re.compile(r"^/api/feed/next$")),
     (("POST",), re.compile(r"^/api/scan$")),
     (("GET", "POST"), re.compile(r"^/api/multipage/.+$")),
     (("GET",), re.compile(r"^/api/status$")),

@@ -40,3 +40,4 @@
 .dest-card { border: 1px solid var(--gray-200); border-radius: 8px; padding: 12px; margin-bottom: 8px; }
 .dest-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .dest-test-result { margin-top: 6px; }
+.profile-button.active { outline: 3px solid var(--primary, #2563eb); outline-offset: 2px; }

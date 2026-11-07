@@ -21,6 +21,10 @@ async function runProfileScan(id) {
 /* --- dashboard: one button per profile ----------------------------------- */
 
 const profileButtons = {
+    feedMode: false,   // the feeder monitor is on: a button picks the next feed
+    nextId: '',
+    timer: null,
+
     async init() {
         const box = document.getElementById('profile-buttons');
         if (!box) return;
@@ -33,20 +37,73 @@ const profileButtons = {
             const admin = edition.role !== 'scan';
             const shown = status.mode === 'scanner' ? (data.profiles || []).filter(p => p.show_on_home) : [];
             if (!admin && shown.length === 0) return;
+            this.feedMode = status.mode === 'scanner' && !!status.monitor_enabled;
             document.getElementById('profile-button-list').innerHTML = shown.map(p => `
                 <button class="btn btn-primary profile-button" data-id="${esc(p.id)}">
                     <span class="profile-icon">${esc(p.icon || '\u{1F4C4}')}</span>
                     <span>${esc(p.name)}</span>
                 </button>`).join('') || '<p class="hint">Make a profile for each kind of document you scan.</p>';
+            const title = box.querySelector('h2');
+            if (this.feedMode) {
+                if (title) title.textContent = 'Next feed profile';
+                const list = document.getElementById('profile-button-list');
+                const hint = document.createElement('p');
+                hint.className = 'hint';
+                hint.id = 'next-feed-hint';
+                list.parentNode.insertBefore(hint, list);
+            }
             box.querySelectorAll('.profile-button').forEach(btn => {
                 btn.addEventListener('click', async () => {
+                    if (this.feedMode) {
+                        await this.choose(btn.dataset.id);
+                        return;
+                    }
                     await runProfileScan(btn.dataset.id);
                     if (window.dashboard) { dashboard.refreshHistory(); dashboard.refreshProblems(); }
                 });
             });
             box.classList.remove('hidden');
+            if (this.feedMode) {
+                await this.refresh();
+                this.timer = setInterval(() => { if (!document.hidden) this.refresh(); }, 5000);
+            }
         } catch (err) {
             console.error('Profile buttons failed:', err);
+        }
+    },
+
+    // Tap a profile to use it for the next batch from the feeder. Tap it again to undo.
+    async choose(id) {
+        try {
+            const data = await api.post('api/feed/next', { profile_id: id === this.nextId ? null : id });
+            this.show(data);
+            const p = data.next_profile;
+            toast(p ? `Next feed: ${p.name}. Load the paper.` : 'Next feed cleared', 'success');
+        } catch (err) {
+            toast(`Error: ${err.message}`, 'error');
+        }
+    },
+
+    async refresh() {
+        try {
+            this.show(await api.get('api/feed'));
+        } catch (err) {
+            console.error('Next feed failed:', err);
+        }
+    },
+
+    show(data) {
+        const next = data.next_profile;
+        this.nextId = next ? next.id : '';
+        document.querySelectorAll('#profile-buttons .profile-button').forEach(btn => {
+            btn.setAttribute('aria-pressed', String(btn.dataset.id === this.nextId));
+            btn.classList.toggle('active', btn.dataset.id === this.nextId);
+        });
+        const hint = document.getElementById('next-feed-hint');
+        if (hint) {
+            hint.textContent = next
+                ? `Next feed: ${next.name}. Load the paper. Tap it again to cancel.`
+                : 'Pick a profile, then load the paper in the feeder.';
         }
     },
 };
