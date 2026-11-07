@@ -55,7 +55,7 @@ The code is not in the image or the EXE. An old config with those settings keeps
 
 > Caution: Give the scan token to staff only. Never give the admin token to staff.
 
-4. On the dashboard, find **Scan from your phone**. Show the QR code to staff.
+4. On the dashboard, find **Pick the next feed from your phone**. Show the QR code to staff.
 5. Press **Show phone code** to add the scan token to the code. Show it to staff only.
 6. Staff open the page and pick a profile. Then they load the paper.
 7. Open **Settings**. Find **Scan audit log**.
