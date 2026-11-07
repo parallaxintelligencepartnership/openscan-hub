@@ -131,7 +131,7 @@ def test_secrets_need_auth(live_server):
     live_server.set_peer(LAN_PEER)
     assert live_server.get("/api/secrets").status == 401
     data = live_server.get("/api/secrets", token=TOKEN).json()
-    assert data == {"api_token": TOKEN, "ftp_password": "ftp-secret-pw"}
+    assert data == {"api_token": TOKEN, "scan_token": "", "ftp_password": "ftp-secret-pw"}
 
 
 def test_errors_endpoint_lists_recent_problems(live_server):

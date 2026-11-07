@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenScanHub - Scan profiles</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/profiles.css">
+</head>
+<body>
+    <div class="top-links"><a href="dashboard">&larr; Dashboard</a> &middot; <a href="settings">Settings</a></div>
+    <div class="container profiles-page">
+        <div class="header">
+            <h1>Scan profiles</h1>
+        </div>
+        <p class="hint mb-16">A profile is one button: scanner settings, what to do with the scan,
+            how to name the file and where to send it.</p>
+
+        <div class="card">
+            <h2>Profiles</h2>
+            <ul class="profile-list" id="profile-list"></ul>
+            <button class="btn btn-secondary btn-small mt-8" id="btn-new-profile" onclick="profileEditor.newProfile()">New profile</button>
+        </div>
+
+        <form class="card hidden" id="profile-form" onsubmit="event.preventDefault(); profileEditor.save();">
+            <h2 id="form-title">Profile</h2>
+            <div class="alert alert-info hidden" id="follow-note">
+                This profile follows the Settings page. When you save it here, it keeps its own values.
+            </div>
+
+            <div class="form-row">
+                <div class="form-group grow">
+                    <label for="p-name">Name</label>
+                    <input type="text" id="p-name" maxlength="60" required>
+                </div>
+                <div class="form-group icon-field">
+                    <label for="p-icon">Icon</label>
+                    <input type="text" id="p-icon" maxlength="16" placeholder="&#128196;">
+                </div>
+            </div>
+            <label class="toggle">
+                <input type="checkbox" id="p-show-on-home">
+                <span class="slider"></span>
+                <span class="label">Show a button on the dashboard</span>
+            </label>
+
+            <h3>Scanner</h3>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="p-source">Source</label>
+                    <select id="p-source">
+                        <option value="auto">Automatic (feeder when it has paper)</option>
+                        <option value="adf">Document feeder</option>
+                        <option value="flatbed">Flatbed</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="p-color">Color</label>
+                    <select id="p-color">
+                        <option value="color">Color</option>
+                        <option value="gray">Grayscale</option>
+                        <option value="bw">Black and white</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="p-resolution">Quality</label>
+                    <select id="p-resolution">
+                        <option value="150">150 dpi (small files)</option>
+                        <option value="200">200 dpi</option>
+                        <option value="300">300 dpi (recommended)</option>
+                        <option value="400">400 dpi</option>
+                        <option value="600">600 dpi (large files)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="p-page-size">Page size</label>
+                    <select id="p-page-size">
+                        <option value="auto">Automatic</option>
+                        <option value="letter">Letter</option>
+                        <option value="a4">A4</option>
+                        <option value="legal">Legal</option>
+                    </select>
+                </div>
+            </div>
+            <label class="toggle">
+                <input type="checkbox" id="p-duplex">
+                <span class="slider"></span>
+                <span class="label">Scan both sides (document feeder)</span>
+            </label>
+
+            <h3>Processing</h3>
+            <div class="toggle-grid">
+                <label class="toggle"><input type="checkbox" id="proc-ocr"><span class="slider"></span><span class="label">Recognize text (searchable PDF)</span></label>
+                <label class="toggle"><input type="checkbox" id="proc-remove_blank_pages"><span class="slider"></span><span class="label">Remove blank pages</span></label>
+                <label class="toggle"><input type="checkbox" id="proc-deskew"><span class="slider"></span><span class="label">Straighten pages</span></label>
+                <label class="toggle"><input type="checkbox" id="proc-auto_rotate"><span class="slider"></span><span class="label">Turn pages upright</span></label>
+                <label class="toggle"><input type="checkbox" id="proc-crop"><span class="slider"></span><span class="label">Crop to the page</span></label>
+                <label class="toggle"><input type="checkbox" id="proc-pdfa"><span class="slider"></span><span class="label">Archive format (PDF/A)</span></label>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="proc-ocr_languages">Text languages</label>
+                    <input type="text" id="proc-ocr_languages" placeholder="eng">
+                    <small class="hint">Codes, separated by commas: eng, deu, fra.</small>
+                </div>
+                <div class="form-group">
+                    <label for="proc-compression">File size</label>
+                    <select id="proc-compression">
+                        <option value="none">As scanned</option>
+                        <option value="standard">Smaller</option>
+                        <option value="small">Smallest</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="proc-output_color">Saved color</label>
+                    <select id="proc-output_color">
+                        <option value="keep">As scanned</option>
+                        <option value="gray">Grayscale</option>
+                        <option value="bw">Black and white</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="p-split">Split one scan into several files</label>
+                <select id="p-split">
+                    <option value="none">Do not split</option>
+                    <option value="blank">At each blank page</option>
+                    <option value="barcode">At each barcode page</option>
+                </select>
+            </div>
+
+            <h3>File name</h3>
+            <div class="form-group">
+                <label for="p-name-rule">Name rule</label>
+                <input type="text" id="p-name-rule" maxlength="200">
+                <div class="field-chips" id="field-chips"></div>
+                <small class="hint">Click a field to add it. {field|text} uses the text when the field is not found.
+                    {doc_date}, {title} and {vendor} need text recognition.</small>
+            </div>
+            <div class="form-group">
+                <label for="p-sample">Sample page text for the preview (optional)</label>
+                <textarea id="p-sample" rows="3" placeholder="ACME Corp&#10;INVOICE&#10;March 3, 2026"></textarea>
+            </div>
+            <p class="name-preview">Preview: <span class="mono" id="name-preview">&hellip;</span></p>
+
+            <h3>Destinations</h3>
+            <div id="dest-list"></div>
+            <div class="row mt-8">
+                <select id="dest-add-type"></select>
+                <button type="button" class="btn btn-secondary btn-small" onclick="profileEditor.addDestination()">Add destination</button>
+            </div>
+
+            <div class="row mt-24">
+                <button type="submit" class="btn btn-primary" id="btn-save-profile">Save profile</button>
+                <button type="button" class="btn btn-secondary" id="btn-scan-profile" onclick="profileEditor.scanNow()">Scan now</button>
+                <button type="button" class="btn btn-secondary" onclick="profileEditor.close()">Close</button>
+            </div>
+        </form>
+
+        <div class="card">
+            <h2>Vendor names</h2>
+            <p class="hint">The {vendor} field looks for these names in the scanned text, in any case. One name per line.</p>
+            <textarea id="vendors" rows="4"></textarea>
+            <button class="btn btn-secondary btn-small mt-8" onclick="profileEditor.saveVendors()">Save vendor names</button>
+        </div>
+    </div>
+
+    <div class="scan-overlay" id="scan-overlay">
+        <div class="scan-modal">
+            <div class="spinner spinner-large" style="margin: 0 auto;"></div>
+            <p style="margin-top: 16px; font-weight: 600;">Scanning...</p>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="js/common.js"></script>
+    <script src="js/profiles.js"></script>
+</body>
+</html>

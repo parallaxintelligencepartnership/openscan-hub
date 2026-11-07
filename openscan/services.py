@@ -9,7 +9,7 @@ a missing optional module never stops the app.
 import importlib
 import logging
 import threading
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from typing import Callable, Optional
 
 from .config import AppConfig, get_config_dir
@@ -45,7 +45,7 @@ class Service:
         return self.label or (self.name[:1].upper() + self.name[1:])
 
 
-DELIVERY = ("output", "paperless", "scan")
+DELIVERY = ("output", "paperless", "scan", "naming", "profiles", "default_profile_id")
 
 SERVICES: list[Service] = [
     Service(
@@ -64,6 +64,18 @@ SERVICES: list[Service] = [
         lambda c: c.wizard_completed and c.ftp_receive.enabled,
         ("ftp_receive",) + DELIVERY,
         error_fn="ftp_receiver_error",
+    ),
+    Service(
+        "SMB share poll", "openscan.scanner.smb_poll", "start_smb_poll", "stop_smb_poll",
+        lambda c: c.wizard_completed and c.smb_poll.enabled,
+        ("smb_poll",) + DELIVERY,
+        error_fn="smb_poll_error",
+    ),
+    Service(
+        "email receiver", "openscan.scanner.imap_receive", "start_imap_receive", "stop_imap_receive",
+        lambda c: c.wizard_completed and c.imap_receive.enabled,
+        ("imap_receive",) + DELIVERY,
+        error_fn="imap_receive_error",
     ),
     Service(
         "retry queue", "openscan.retry_queue", "start", "stop",
@@ -155,8 +167,17 @@ def _prepare(config: AppConfig) -> None:
         config.ftp_receive.staging_dir = str(get_config_dir() / "ftp_staging")
 
 
+def _plain(value):
+    """A comparable form of a config section: dataclasses, lists of them, or plain values."""
+    if is_dataclass(value) and not isinstance(value, type):
+        return asdict(value)
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    return value
+
+
 def _section_changed(old: AppConfig, new: AppConfig, sections: tuple[str, ...]) -> bool:
-    return any(asdict(getattr(old, s)) != asdict(getattr(new, s)) for s in sections)
+    return any(_plain(getattr(old, s, None)) != _plain(getattr(new, s, None)) for s in sections)
 
 
 def set_running_web(bind: str, port: int) -> None:

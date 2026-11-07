@@ -8,12 +8,16 @@ const settings = {
     secrets: null,
     newScanner: null,
     tokenShown: false,
+    scanTokenShown: false,
+    edition: { homelab: true, features: {} },
 
     async init() {
+        this.edition = await loadEdition();
         [this.cfg, this.defaults] = await Promise.all([api.get('api/config'), api.get('api/defaults')]);
         this.secrets = await api.get('api/secrets');
         this.fill();
         this.refreshProblems();
+        this.refreshAudit();
     },
 
     isLan(bind) { return !['127.0.0.1', 'localhost', '::1', ''].includes(bind || ''); },
@@ -57,10 +61,35 @@ const settings = {
         $('ftp-port').value = f.port;
         $('ftp-username').value = f.username;
         $('ftp-password').value = (this.secrets && this.secrets.ftp_password) || '';
+        const smb = c.smb_poll;
+        $('smb-enabled').checked = !!smb.enabled;
+        $('smb-server').value = smb.server || '';
+        $('smb-share').value = smb.share || '';
+        $('smb-path').value = smb.path || '';
+        $('smb-username').value = smb.username || '';
+        $('smb-password').value = '';
+        $('smb-password').placeholder = smb.has_password ? 'Saved. Leave blank to keep it.' : '';
+        $('smb-domain').value = smb.domain || '';
+        $('smb-interval').value = smb.poll_interval;
+        $('smb-after').value = smb.after_delivery;
+        const im = c.imap_receive;
+        $('imap-enabled').checked = !!im.enabled;
+        $('imap-host').value = im.host || '';
+        $('imap-security').value = im.security;
+        $('imap-port').value = im.port;
+        $('imap-username').value = im.username || '';
+        $('imap-password').value = '';
+        $('imap-password').placeholder = im.has_password ? 'Saved. Leave blank to keep it.' : '';
+        $('imap-folder').value = im.folder || '';
+        $('imap-senders').value = (im.allowed_senders || []).join(', ');
+        $('imap-move').value = im.move_to_folder || '';
+        $('imap-interval').value = im.poll_interval;
         $('folder-enabled').checked = !!c.folder_watch.enabled;
         $('watch-folder').value = c.folder_watch.watch_folder || '';
 
         $('ha-enabled').checked = !!c.homeassistant.enabled;
+        $('audit-enabled').checked = !!(c.audit || {}).enabled;
+        $('scan-token-optional').classList.toggle('hidden', !this.edition.homelab);
 
         $('allow-lan').checked = this.isLan(c.web.bind);
         $('mdns-enabled').checked = !!c.web.advertise_mdns;
@@ -153,6 +182,7 @@ const settings = {
                 duplex: $('scan-duplex').checked,
                 remove_blank_pages: $('scan-remove-blank').checked,
             },
+            audit: { enabled: $('audit-enabled').checked },
             paperless: {
                 enabled: $('paperless-enabled').checked,
                 mode: $('paperless-mode').value,
@@ -170,10 +200,34 @@ const settings = {
                 username: $('ftp-username').value.trim(),
                 password: $('ftp-password').value.trim(),
             },
+            smb_poll: {
+                enabled: $('smb-enabled').checked,
+                server: $('smb-server').value.trim(),
+                share: $('smb-share').value.trim(),
+                path: $('smb-path').value.trim(),
+                username: $('smb-username').value.trim(),
+                password: $('smb-password').value,
+                domain: $('smb-domain').value.trim(),
+                poll_interval: parseFloat($('smb-interval').value),
+                after_delivery: $('smb-after').value,
+            },
+            imap_receive: {
+                enabled: $('imap-enabled').checked,
+                host: $('imap-host').value.trim(),
+                security: $('imap-security').value,
+                port: parseInt($('imap-port').value, 10),
+                username: $('imap-username').value.trim(),
+                password: $('imap-password').value,
+                folder: $('imap-folder').value.trim(),
+                allowed_senders: $('imap-senders').value,
+                move_to_folder: $('imap-move').value.trim(),
+                poll_interval: parseFloat($('imap-interval').value),
+            },
             folder_watch: { enabled: $('folder-enabled').checked, watch_folder: $('watch-folder').value.trim() },
             homeassistant: { enabled: $('ha-enabled').checked },
             web: { advertise_mdns: $('mdns-enabled').checked, port: parseInt($('web-port').value, 10) },
         };
+        if (!this.edition.homelab) { delete body.paperless; delete body.homeassistant; }
         const lan = $('allow-lan').checked;
         if (lan !== this.isLan(this.cfg.web.bind)) body.web.bind = lan ? '0.0.0.0' : '127.0.0.1';
         if (this.newScanner) {
@@ -226,6 +280,41 @@ const settings = {
         this.tokenShown = !this.tokenShown;
         $('token-value').textContent = this.tokenShown ? this.secrets.api_token : '•'.repeat(12);
         $('btn-reveal').textContent = this.tokenShown ? 'Hide' : 'Show';
+    },
+
+    revealScanToken() {
+        this.scanTokenShown = !this.scanTokenShown;
+        $('scan-token-value').textContent = this.scanTokenShown ? (this.secrets.scan_token || '') : '•'.repeat(12);
+        $('btn-reveal-scan').textContent = this.scanTokenShown ? 'Hide' : 'Show';
+    },
+
+    copyScanToken() { copyText(this.secrets.scan_token || ''); },
+
+    async regenerateScanToken() {
+        if (!confirm('Make a new scan token? Devices that use the old one must sign in again.')) return;
+        const data = await api.post('api/scan-token/regenerate', {});
+        if (data.scan_token) {
+            this.secrets.scan_token = data.scan_token;
+            this.scanTokenShown = false;
+            this.revealScanToken();
+            toast('New scan token made', 'success');
+        } else {
+            toast(data.error || 'Could not make a new scan token', 'error');
+        }
+    },
+
+    async refreshAudit() {
+        const data = await api.get('api/audit');
+        const entries = data.entries || [];
+        $('audit-rows').innerHTML = entries.map(e => {
+            const sent = Array.isArray(e.destinations) ? e.destinations.join(', ') : (e.destinations || '');
+            const result = { ok: 'Saved', queued: 'Waiting to retry', failed: 'Not saved' }[e.result] || e.result || '';
+            return `<tr><td>${esc(formatTime(e.time))}</td><td>${esc(e.source)}</td><td>${esc(e.profile_name || e.profile)}</td>
+                <td>${esc(e.pages)}</td><td class="mono">${esc(e.file)}</td>
+                <td>${esc(sent)}</td><td>${esc(result)}</td><td>${esc(e.started_by)}</td></tr>`;
+        }).join('');
+        $('audit-table').classList.toggle('hidden', entries.length === 0);
+        $('audit-empty').classList.toggle('hidden', entries.length !== 0);
     },
 
     copyToken() { copyText(this.secrets.api_token); },

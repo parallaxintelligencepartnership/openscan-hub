@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#f4f6f8" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#111827" media="(prefers-color-scheme: dark)">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="OpenScanHub">
+    <title>OpenScanHub</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+    <link rel="stylesheet" href="css/m.css">
+</head>
+<body>
+    <main class="app">
+        <header class="bar">
+            <h1>OpenScanHub</h1>
+            <span class="role hidden" id="role-note"></span>
+        </header>
+
+        <div class="notice hidden" id="notice" role="status" aria-live="polite"></div>
+
+        <!-- Sign in -->
+        <section id="view-login" class="view hidden">
+            <form id="login-form" class="card">
+                <label for="token">Access token</label>
+                <input type="password" id="token" autocomplete="current-password" autocapitalize="off" autocorrect="off">
+                <p class="hint">Use the scan token from the Settings page, or scan the phone code on the dashboard.</p>
+                <button class="btn primary" type="submit">Sign in</button>
+            </form>
+        </section>
+
+        <!-- Home -->
+        <section id="view-home" class="view hidden">
+            <div class="card status">
+                <span class="dot" id="status-dot"></span>
+                <div>
+                    <div class="status-name" id="status-name">Checking the scanner</div>
+                    <div class="hint" id="status-detail"></div>
+                </div>
+            </div>
+
+            <div class="card next-feed hidden" id="next-feed" role="status" aria-live="polite">
+                <div class="next-text">
+                    <strong id="next-text"></strong>
+                    <span class="hint" id="next-count"></span>
+                </div>
+                <button class="btn danger" id="btn-cancel-feed" type="button">Cancel</button>
+            </div>
+
+            <p class="hint hidden" id="monitor-off">Automatic feeder scanning is off. Turn it on in Settings.</p>
+
+            <h2 class="section">Pick a profile, then load the paper</h2>
+            <div class="stack" id="profile-buttons"></div>
+
+            <h2 class="section">Last scans</h2>
+            <ul class="scans" id="last-scans" aria-live="polite"></ul>
+            <p class="hint hidden" id="scans-empty">No scans yet.</p>
+        </section>
+    </main>
+
+    <div class="busy hidden" id="busy" role="alert" aria-live="assertive">
+        <div class="spinner"></div>
+        <p id="busy-text">Working</p>
+    </div>
+
+    <script src="js/m.js"></script>
+</body>
+</html>

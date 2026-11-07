@@ -12,12 +12,11 @@ from datetime import datetime
 from typing import Optional
 
 from .config import AppConfig
-from . import intake
+from . import feed, intake, profiles
 from .scanner.base import (
     AdfState,
     ScannerInfo,
     ScannerState,
-    ScanSettings,
     ScanSource,
     release_scan,
     try_acquire_scan,
@@ -203,14 +202,19 @@ def _try_auto_scan(config: AppConfig, scanner_info: ScannerInfo, impl) -> bool:
         status = impl.get_status(scanner_info)
         if status.adf_state != AdfState.LOADED or status.state != ScannerState.IDLE:
             return False
-        logger.info("Auto-scanning from the document feeder")
-        pdf_data = _auto_scan_pages(config, scanner_info, impl)
+        # The next-feed choice applies to this one batch.
+        chosen = feed.peek()
+        profile = profiles.get(config, chosen[0] if chosen else None)
+        logger.info("Auto-scanning from the document feeder with profile %s", profile.name)
+        pdf_data = _auto_scan_pages(config, scanner_info, impl, profile)
     finally:
         release_scan()
     # Deliver without the scanner lock: Paperless can take a minute, and
     # dashboard scans should not be refused as "busy" meanwhile.
     if pdf_data is not None:
-        _deliver_auto_scan(config, pdf_data)
+        delivered = _deliver_auto_scan(config, pdf_data, profile)
+        if chosen and delivered:
+            feed.clear_if(chosen[2])
     return True
 
 
@@ -225,22 +229,16 @@ def _delivery_ok(result) -> bool:
 
 def _auto_scan(config: AppConfig, scanner_info: ScannerInfo, scanner_impl) -> None:
     """Scan from the feeder and deliver it. Caller holds scan_lock."""
-    pdf_data = _auto_scan_pages(config, scanner_info, scanner_impl)
+    profile = profiles.get(config, feed.next_profile_id())
+    pdf_data = _auto_scan_pages(config, scanner_info, scanner_impl, profile)
     if pdf_data is not None:
-        _deliver_auto_scan(config, pdf_data)
+        _deliver_auto_scan(config, pdf_data, profile)
 
 
-def _auto_scan_pages(config: AppConfig, scanner_info: ScannerInfo, scanner_impl):
-    """Scan from the feeder. Caller holds scan_lock. Returns PDF bytes or None."""
-    d = config.scan
-    settings = ScanSettings(
-        source=ScanSource.ADF,
-        resolution=d.resolution,
-        color_mode=d.color_mode,
-        duplex=d.duplex,
-        page_size=d.page_size,
-        remove_blank_pages=d.remove_blank_pages,
-    )
+def _auto_scan_pages(config: AppConfig, scanner_info: ScannerInfo, scanner_impl, profile=None):
+    """Scan from the feeder with the profile's scanner settings (the default
+    profile when none is given). Caller holds scan_lock. Returns PDF bytes or None."""
+    settings = profiles.scan_settings(profile or profiles.get(config), ScanSource.ADF)
     try:
         return scanner_impl.scan(scanner_info, settings)
     except Exception as e:
@@ -248,13 +246,16 @@ def _auto_scan_pages(config: AppConfig, scanner_info: ScannerInfo, scanner_impl)
         return None
 
 
-def _deliver_auto_scan(config: AppConfig, pdf_data: bytes) -> None:
-    """Save a feeder scan and add it to the history. Needs no scanner lock."""
+def _deliver_auto_scan(config: AppConfig, pdf_data: bytes, profile=None) -> bool:
+    """Save a feeder scan and add it to the history. Needs no scanner lock.
+    Returns True when the scan went through intake (even if a destination failed)."""
+    profile = profile or profiles.get(config)
     try:
-        result = intake.handle_scan(config, pdf_data, source="adf", started_by="feeder monitor")
+        result = intake.handle_scan(config, pdf_data, source="adf", profile=profile,
+                                    started_by="feeder monitor")
     except Exception as e:
         logger.error("Auto-scan could not be saved: %s", e)
-        return
+        return False
 
     filename = getattr(result, "filename", "") or "scan"
     size = getattr(result, "size_bytes", 0) or len(pdf_data)
@@ -273,8 +274,10 @@ def _deliver_auto_scan(config: AppConfig, pdf_data: bytes) -> None:
             "size_bytes": size,
             "source": "Feeder",
             "auto": True,
+            "profile": profile.name,
             **summary,
             "results": dict(summary),
         })
     except Exception as e:
         logger.debug("Could not add auto-scan to history: %s", e)
+    return True

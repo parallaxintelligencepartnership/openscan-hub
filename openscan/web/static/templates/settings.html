@@ -43,6 +43,8 @@
                 the feeder, so for them use the Scan button.</p>
         </div>
 
+        <p class="mb-16"><a href="profiles" id="profiles-link">Scan profiles</a>: buttons with their own scanner settings, file names and destinations.</p>
+
         <!-- Where scans go -->
         <div class="card" id="output">
             <h2>Where scans go</h2>
@@ -95,7 +97,7 @@
         </div>
 
         <!-- Paperless-NGX -->
-        <details class="card section" id="paperless">
+        <details class="card section homelab-only" id="paperless">
             <summary><h2>Paperless-NGX (optional)</h2></summary>
             <div class="mt-16">
                 <label class="toggle">
@@ -185,10 +187,103 @@
                 <input type="text" id="watch-folder">
                 <small class="hint">Must be different from the folder where scans go.</small>
             </div>
+            <label class="toggle mt-8">
+                <input type="checkbox" id="smb-enabled">
+                <span class="slider"></span>
+                <span class="label">Pick up scans from a network share (NAS)</span>
+            </label>
+            <div id="smb-fields" class="mt-8">
+                <small class="hint">The scanner saves to a share with "Scan to network folder". OpenScanHub logs in and checks the share for new files.</small>
+                <div class="form-group mt-8">
+                    <label for="smb-server">Server</label>
+                    <input type="text" id="smb-server" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="smb-share">Share name</label>
+                    <input type="text" id="smb-share" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="smb-path">Folder in the share</label>
+                    <input type="text" id="smb-path" autocomplete="off">
+                    <small class="hint">Leave empty to use the top of the share.</small>
+                </div>
+                <div class="form-group">
+                    <label for="smb-username">User name</label>
+                    <input type="text" id="smb-username" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="smb-password">Password</label>
+                    <input type="password" id="smb-password" autocomplete="new-password">
+                </div>
+                <div class="form-group">
+                    <label for="smb-domain">Domain (optional)</label>
+                    <input type="text" id="smb-domain" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="smb-interval">Check every (seconds)</label>
+                    <input type="number" id="smb-interval" min="5" max="3600">
+                </div>
+                <div class="form-group">
+                    <label for="smb-after">After delivery</label>
+                    <select id="smb-after">
+                        <option value="move">Move the file to a "processed" folder</option>
+                        <option value="delete">Delete the file</option>
+                    </select>
+                </div>
+            </div>
+            <label class="toggle mt-8">
+                <input type="checkbox" id="imap-enabled">
+                <span class="slider"></span>
+                <span class="label">Take scans from an email mailbox</span>
+            </label>
+            <div id="imap-fields" class="mt-8">
+                <small class="hint">OpenScanHub reads unread mail, takes PDF and image attachments, then marks the mail as read and moves it.</small>
+                <div class="form-group mt-8">
+                    <label for="imap-host">Mail server</label>
+                    <input type="text" id="imap-host" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="imap-security">Security</label>
+                    <select id="imap-security">
+                        <option value="ssl">SSL (usually port 993)</option>
+                        <option value="starttls">STARTTLS (usually port 143)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="imap-port">Port</label>
+                    <input type="number" id="imap-port" min="1" max="65535">
+                </div>
+                <div class="form-group">
+                    <label for="imap-username">User name</label>
+                    <input type="text" id="imap-username" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="imap-password">Password</label>
+                    <input type="password" id="imap-password" autocomplete="new-password">
+                </div>
+                <div class="form-group">
+                    <label for="imap-folder">Mailbox folder to read</label>
+                    <input type="text" id="imap-folder" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="imap-senders">Allowed senders (optional)</label>
+                    <input type="text" id="imap-senders" autocomplete="off">
+                    <small class="hint">Separate with commas. Use an address or a domain such as @example.com. Empty means any sender.</small>
+                </div>
+                <div class="form-group">
+                    <label for="imap-move">Move finished mail to this folder</label>
+                    <input type="text" id="imap-move" autocomplete="off">
+                    <small class="hint">Leave empty to only mark the mail as read.</small>
+                </div>
+                <div class="form-group">
+                    <label for="imap-interval">Check every (seconds)</label>
+                    <input type="number" id="imap-interval" min="10" max="3600">
+                </div>
+            </div>
         </div>
 
         <!-- Integrations -->
-        <div class="card" id="integrations">
+        <div class="card homelab-only" id="integrations">
             <h2>Integrations</h2>
             <label class="toggle">
                 <input type="checkbox" id="ha-enabled">
@@ -229,6 +324,40 @@
                 </div>
                 <small class="hint">Regenerating signs out every other device and Home Assistant until you give them the new token.</small>
             </div>
+            <div class="form-group">
+                <label>Scan token <span id="scan-token-optional">(optional)</span></label>
+                <div class="row">
+                    <span class="mono" id="scan-token-value">&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;</span>
+                    <button class="btn btn-secondary btn-small" id="btn-reveal-scan" onclick="settings.revealScanToken()">Show</button>
+                    <button class="btn btn-secondary btn-small" onclick="settings.copyScanToken()">Copy</button>
+                    <button class="btn btn-danger btn-small" onclick="settings.regenerateScanToken()">Regenerate</button>
+                </div>
+                <small class="hint">Give this token to staff. It opens only the scan page and the profile buttons, never Settings.</small>
+            </div>
+        </div>
+
+        <!-- Audit log -->
+        <div class="card" id="audit">
+            <h2>Scan audit log</h2>
+            <label class="toggle">
+                <input type="checkbox" id="audit-enabled">
+                <span class="slider"></span>
+                <span class="label">Keep a record of every scan</span>
+            </label>
+            <small class="hint">Each scan adds one line to audit.jsonl in the config folder: time, source,
+                profile, pages, file name, destinations, result and who started it. Click Save to apply the switch.</small>
+            <div class="mt-8">
+                <a class="btn btn-secondary btn-small" href="api/audit/download" download="audit.jsonl">Download audit.jsonl</a>
+                <button class="btn btn-secondary btn-small" onclick="settings.refreshAudit()">Refresh</button>
+            </div>
+            <div class="audit-table-wrap mt-8" style="overflow-x: auto;">
+                <table class="audit-table" id="audit-table">
+                    <thead><tr><th>Time</th><th>Source</th><th>Profile</th><th>Pages</th><th>File</th>
+                        <th>Sent to</th><th>Result</th><th>Started by</th></tr></thead>
+                    <tbody id="audit-rows"></tbody>
+                </table>
+            </div>
+            <p class="hint" id="audit-empty">No entries yet. The newest 200 show here.</p>
         </div>
 
         <!-- Troubleshooting -->

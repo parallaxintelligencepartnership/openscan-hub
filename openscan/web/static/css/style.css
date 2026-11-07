@@ -838,3 +838,7 @@ details.section[open] > summary::after { content: " \25B4"; }
 .result-bad { color: var(--error); }
 .top-links { position: fixed; top: 16px; left: 16px; font-size: 14px; }
 .top-links a { color: var(--gray-500); text-decoration: none; }
+
+/* Phone page link and QR code on the dashboard */
+.phone-qr { text-align: center; margin: 8px 0; }
+.phone-qr canvas { width: 200px; height: 200px; max-width: 100%; image-rendering: pixelated; background: #fff; }

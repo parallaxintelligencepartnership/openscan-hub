@@ -42,6 +42,7 @@ class MultiPageSession:
 	created_at: datetime = field(default_factory=datetime.now)
 	last_activity: datetime = field(default_factory=datetime.now)
 	source: ScanSource = ScanSource.FLATBED
+	profile_id: str = ""
 
 
 _sessions: dict[str, MultiPageSession] = {}
@@ -53,7 +54,7 @@ def ensure_pdf(data: bytes, resolution: int = 300) -> bytes:
 	return pages.ensure_pdf(data, resolution)
 
 
-def create_session(source: ScanSource) -> str:
+def create_session(source: ScanSource, profile_id: str = "") -> str:
 	"""Create a new multi-page session."""
 	session_id = str(uuid.uuid4())
 	with _sessions_lock:
@@ -62,7 +63,8 @@ def create_session(source: ScanSource) -> str:
 			oldest = min(_sessions.values(), key=lambda s: s.last_activity)
 			del _sessions[oldest.session_id]
 			logger.info('Evicted multipage session %s (too many sessions)', oldest.session_id)
-		_sessions[session_id] = MultiPageSession(session_id=session_id, source=source)
+		_sessions[session_id] = MultiPageSession(session_id=session_id, source=source,
+		                                          profile_id=profile_id)
 	logger.info('Created multipage session %s for %s', session_id, source.value)
 	return session_id
 
@@ -186,5 +188,6 @@ def get_session_info(session_id: str) -> Optional[dict]:
 			'session_id': session.session_id,
 			'page_count': len(session.pages),
 			'source': session.source.value,
+			'profile_id': session.profile_id,
 			'created_at': session.created_at.isoformat(),
 		}

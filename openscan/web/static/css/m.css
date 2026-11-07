@@ -1,0 +1,133 @@
+/* OpenScanHub phone app. Light and dark follow the system setting. */
+
+:root {
+    color-scheme: light dark;
+    --bg: #f4f6f8;
+    --card: #ffffff;
+    --text: #111827;
+    --muted: #5b6472;
+    --line: #d5dae1;
+    --primary: #2563eb;
+    --primary-text: #ffffff;
+    --success: #15803d;
+    --danger: #b91c1c;
+    --warn-bg: #fef3c7;
+    --err-bg: #fee2e2;
+    --ok-bg: #dcfce7;
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #111827;
+        --card: #1f2937;
+        --text: #f3f4f6;
+        --muted: #aab2bf;
+        --line: #374151;
+        --primary: #3b82f6;
+        --success: #22a55a;
+        --danger: #ef4444;
+        --warn-bg: #4a3b10;
+        --err-bg: #4c1d1d;
+        --ok-bg: #14391f;
+        --shadow: none;
+    }
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; padding: 0; }
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-text-size-adjust: 100%;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+.app { max-width: 520px; margin: 0 auto; padding: 12px 12px 96px; }
+.hidden { display: none !important; }
+
+.bar { display: flex; align-items: baseline; justify-content: space-between; padding: 4px 2px 10px; }
+.bar h1 { font-size: 22px; margin: 0; }
+.role { font-size: 13px; color: var(--muted); }
+
+h2.section { font-size: 15px; font-weight: 600; color: var(--muted); margin: 20px 2px 8px; text-transform: none; }
+
+.card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    padding: 14px;
+    margin-bottom: 12px;
+}
+
+.stack { display: flex; flex-direction: column; gap: 10px; }
+
+.hint { color: var(--muted); font-size: 14px; }
+
+label { display: block; font-weight: 600; margin-bottom: 6px; }
+
+input[type=password], input[type=text], select {
+    width: 100%;
+    min-height: 48px;
+    font: inherit;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+}
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 52px;
+    padding: 12px 16px;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    font: inherit;
+    font-weight: 600;
+    text-align: center;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    margin: 0;
+}
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn.primary { background: var(--primary); color: var(--primary-text); }
+.btn.secondary { background: var(--card); color: var(--primary); border-color: var(--primary); }
+.btn.danger { background: var(--card); color: var(--danger); border-color: var(--danger); }
+.btn:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
+
+.profile-btn { width: 100%; justify-content: flex-start; min-height: 60px; font-size: 18px; }
+.profile-btn .icon { font-size: 24px; }
+
+.status { display: flex; align-items: center; gap: 12px; }
+.status-name { font-weight: 600; }
+.dot { width: 14px; height: 14px; border-radius: 50%; background: #9ca3af; flex: none; }
+.dot.online { background: var(--success); }
+.dot.busy { background: #d97706; }
+.dot.offline { background: var(--danger); }
+
+.notice { border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; background: var(--warn-bg); }
+.notice.ok { background: var(--ok-bg); }
+.notice.error { background: var(--err-bg); }
+
+.next-feed { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-color: var(--primary); }
+.next-text { display: flex; flex-direction: column; min-width: 0; }
+.next-feed .btn { min-height: 48px; flex: none; }
+.profile-btn[aria-pressed=true] { box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35); }
+
+.scans { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.scan { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-height: 44px; }
+.scan.failed { border-color: var(--danger); }
+.scan-name { font-weight: 600; overflow-wrap: anywhere; }
+
+@media (max-width: 380px) {
+    .app { padding-left: 8px; padding-right: 8px; }
+}

@@ -74,10 +74,41 @@ class FtpReceiveConfig:
 
 
 @dataclass
+class SmbPollConfig:
+    """Poll a folder on an SMB share (a NAS) where the scanner saves files."""
+    enabled: bool = False
+    server: str = ""
+    share: str = ""
+    path: str = ""  # folder inside the share; "" = the share root
+    username: str = ""
+    password: str = ""
+    domain: str = ""
+    port: int = 445
+    poll_interval: float = 30.0
+    after_delivery: str = "move"  # "move" (to a "processed" subfolder) or "delete"
+
+
+@dataclass
+class ImapReceiveConfig:
+    """Poll a mailbox and deliver PDF and image attachments."""
+    enabled: bool = False
+    host: str = ""
+    port: int = 993
+    security: str = "ssl"  # "ssl" or "starttls"
+    username: str = ""
+    password: str = ""
+    folder: str = "INBOX"
+    allowed_senders: list[str] = field(default_factory=list)  # empty = anyone
+    poll_interval: float = 60.0
+    move_to_folder: str = "Processed"  # "" = only mark the message as seen
+
+
+@dataclass
 class WebConfig:
     bind: str = "127.0.0.1"  # "0.0.0.0" for LAN access
     port: int = 8020
     api_token: str = ""  # generated on first load
+    scan_token: str = ""  # generated on first load; opens only the scan routes
     advertise_mdns: bool = True
 
 
@@ -88,6 +119,12 @@ class ScanDefaults:
     page_size: str = "auto"  # auto | letter | a4 | legal
     duplex: bool = False
     remove_blank_pages: bool = False
+
+
+@dataclass
+class NamingConfig:
+    # Vendor names the {vendor} name field looks for in the scanned text.
+    vendors: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -115,10 +152,13 @@ class AppConfig:
     monitor: MonitorConfig = field(default_factory=MonitorConfig)
     folder_watch: FolderWatchConfig = field(default_factory=FolderWatchConfig)
     ftp_receive: FtpReceiveConfig = field(default_factory=FtpReceiveConfig)
+    smb_poll: SmbPollConfig = field(default_factory=SmbPollConfig)
+    imap_receive: ImapReceiveConfig = field(default_factory=ImapReceiveConfig)
     web: WebConfig = field(default_factory=WebConfig)
     scan: ScanDefaults = field(default_factory=ScanDefaults)
     homeassistant: HomeAssistantConfig = field(default_factory=HomeAssistantConfig)
     audit: AuditConfig = field(default_factory=AuditConfig)
+    naming: NamingConfig = field(default_factory=NamingConfig)
     log_level: str = "INFO"
     # Scan profiles (openscan.profiles.Profile). load_config adds a "Default"
     # profile that follows the sections above when the file has none.
@@ -207,18 +247,19 @@ def config_dir_remedy(config_dir: Optional[Path] = None) -> str:
     return "give this user permission to write to %s" % d
 
 
-def read_saved_token(path: Optional[Path] = None) -> str:
+def read_saved_token(path: Optional[Path] = None, scan: bool = False) -> str:
     """The access token as the running app sees it, without generating one.
 
     OPENSCAN_TOKEN wins, as it does in load_config; otherwise the token saved
-    in the config file. Returns "" if there is none."""
+    in the config file. Returns "" if there is none. `scan=True` reads the
+    scan token (web.scan_token), which has no environment override."""
     env = os.environ.get("OPENSCAN_TOKEN", "")
-    if env:
+    if env and not scan:
         return env
     config_path = path or get_config_path()
     try:
         data = json.loads(config_path.read_text(encoding="utf-8"))
-        token = data["web"]["api_token"]
+        token = data["web"]["scan_token" if scan else "api_token"]
     except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError):
         return ""
     return token if isinstance(token, str) else ""
@@ -248,6 +289,9 @@ def load_config(path: Optional[Path] = None) -> AppConfig:
     config.__dict__.pop("_had_profiles", None)
     if not config.web.api_token:
         config.web.api_token = secrets.token_hex(16)
+        generated = True
+    if not config.web.scan_token:
+        config.web.scan_token = secrets.token_hex(16)
         generated = True
     if config.ftp_receive.password in ("", "scan"):
         config.ftp_receive.password = secrets.token_urlsafe(12)
@@ -389,10 +433,13 @@ def _dict_to_config(data: dict) -> AppConfig:
         "monitor": MonitorConfig,
         "folder_watch": FolderWatchConfig,
         "ftp_receive": FtpReceiveConfig,
+        "smb_poll": SmbPollConfig,
+        "imap_receive": ImapReceiveConfig,
         "web": WebConfig,
         "scan": ScanDefaults,
         "homeassistant": HomeAssistantConfig,
         "audit": AuditConfig,
+        "naming": NamingConfig,
     }
     for name, cls in sections.items():
         raw = data.get(name)

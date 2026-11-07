@@ -4,14 +4,22 @@ const dashboard = {
     statusInterval: null,
     multipageSession: null,
 
-    init() {
+    async init() {
         checkConfigWritable();
+        const info = await loadEdition();
+        // The scan token cannot open Settings, history or the retry queue.
+        const scanOnly = info.role === 'scan';
+        if (scanOnly) {
+            document.querySelectorAll('.settings-link').forEach(el => el.classList.add('hidden'));
+        }
         this.refreshStatus();
-        this.refreshHistory();
-        this.refreshProblems();
+        if (!scanOnly) {
+            this.refreshHistory();
+            this.refreshProblems();
+        }
         this.statusInterval = setInterval(() => {
             this.refreshStatus();
-            this.refreshProblems();
+            if (!scanOnly) this.refreshProblems();
         }, 5000);
     },
 

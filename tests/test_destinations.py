@@ -42,7 +42,7 @@ def test_builtin_types_and_fields():
 
 def test_office_edition_hides_paperless(monkeypatch):
     monkeypatch.setattr(_edition, "EDITION", "office")
-    assert [cls.type for cls in destinations.available()] == ["folder"]
+    assert [cls.type for cls in destinations.available()] == ["folder", "smb", "webdav", "email"]
     assert destinations.get("paperless_api") is None
     assert "paperless_api" in destinations.all_types()
     with pytest.raises(DeliveryError, match="not available"):
@@ -54,7 +54,7 @@ def test_registry_survives_a_deleted_module(monkeypatch):
     monkeypatch.setattr(destinations, "_registry", {})
     monkeypatch.setattr(destinations, "_loaded", False)
     monkeypatch.setitem(sys.modules, "openscan.destinations.paperless", None)
-    assert [cls.type for cls in destinations.available()] == ["folder"]
+    assert [cls.type for cls in destinations.available()] == ["folder", "smb", "webdav", "email"]
     monkeypatch.setattr(destinations, "_loaded", False)
 
 

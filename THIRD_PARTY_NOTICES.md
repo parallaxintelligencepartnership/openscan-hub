@@ -1,4 +1,16 @@
+---
+title: Third-party notices
+project: openscan-hub
+status: current
+tags: [docs, licenses]
+created: 2026-10-10
+updated: 2026-11-06
+---
+
 # Third-party notices
+
+Tags: docs, licenses
+Wiki: [[README]]
 
 OpenScanHub itself is released under the MIT License (see `LICENSE`).
 It uses the open-source packages below. The Windows EXE and the Docker image
@@ -19,7 +31,13 @@ bundle them; each keeps its own license. Exact versions are pinned in
 | Pillow | MIT-CMU (HPND) | Turning scanned images into PDF pages; deskew, crop, gray and black-and-white pages | https://github.com/python-pillow/Pillow |
 | LittleCMS (inside Pillow) | MIT | The sRGB color profile in PDF/A files | https://github.com/mm2/Little-CMS |
 | zxing-cpp | Apache-2.0 | Reading barcodes and QR codes on separator sheets | https://github.com/zxing-cpp/zxing-cpp |
-| Zint (inside zxing-cpp) | BSD-3-Clause | Barcode writing in zxing-cpp (OpenScanHub only reads) | https://github.com/zint/zint |
+| Zint (inside zxing-cpp) | BSD-3-Clause | Making the QR code on separator sheets | https://github.com/zint/zint |
+| smbprotocol | MIT | The SMB network share destination | https://github.com/jborean93/smbprotocol |
+| pyspnego (needed by smbprotocol) | MIT | Signing in to SMB servers | https://github.com/jborean93/pyspnego |
+| cryptography (needed by smbprotocol and pyspnego) | Apache-2.0 OR BSD-3-Clause | Encryption and signing for SMB | https://github.com/pyca/cryptography |
+| cffi (needed by cryptography) | MIT-0 | Calling native code | https://github.com/python-cffi/cffi |
+| pycparser (needed by cffi) | BSD-3-Clause | Reading C declarations | https://github.com/eliben/pycparser |
+| sspilib (needed by pyspnego, Windows only) | BSD-3-Clause | Windows sign-in for SMB | https://github.com/jborean93/sspilib |
 
 ## Separate programs (not bundled in the EXE)
 

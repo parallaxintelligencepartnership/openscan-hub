@@ -159,6 +159,28 @@ a warning.
 old files. `audit.recent(n)` returns the newest entries first.
 `config.audit.enabled` is on by default in the Office edition only.
 
+## Next feed profile
+
+Paper goes in the document feeder and the feeder monitor
+(`openscan/monitor.py`) scans it. A user picks the profile for the next
+batch on the phone page `/m` or on the dashboard.
+
+- `openscan/feed.py` holds the choice in memory. A restart clears it.
+- `POST /api/feed/next` with `{"profile_id": id}` sets it. `{"profile_id":
+  null}` clears it.
+- `GET /api/feed` returns `next_profile` (`{id, name}` or null),
+  `expires_in_seconds`, `adf_state`, `scanner_state`, `monitor_enabled` and
+  `last_scans` (the last five, each with `file`, `time`, `profile`, `result`).
+- The choice is one-shot. It clears after the monitor delivers that batch,
+  or after 10 minutes (`feed.TTL_SECONDS`).
+- The monitor uses the chosen profile for the scanner settings and for
+  `intake.handle_scan(profile=...)`. Without a choice it uses the default
+  profile. The audit event holds the profile name and `started_by` stays
+  `feeder monitor`.
+- Both routes are in the scan-role allow list in `openscan/web/server.py`.
+- When the monitor is off, a dashboard profile button scans at once with
+  `POST /api/profiles/<id>/scan`.
+
 ## Old interfaces
 
 `openscan/output.py` keeps `save_scan`, `save_scan_for_config`,
@@ -169,4 +191,5 @@ wrappers. New code uses `intake.handle_scan` or `destinations`.
 
 | Date | Change |
 |---|---|
+| 2026-11-06 | Add the next feed profile. |
 | 2026-11-06 | First version: intake, profiles, destinations, processing, naming, audit. |

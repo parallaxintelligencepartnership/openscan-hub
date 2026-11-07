@@ -40,6 +40,15 @@ def _restore_root_logging():
     logging_setup._handlers.clear()
 
 
+@pytest.fixture(autouse=True)
+def _clear_next_feed():
+    """The next-feed choice is process-wide; start and end each test without it."""
+    from openscan import feed
+    feed.clear()
+    yield
+    feed.clear()
+
+
 @pytest.fixture
 def config_dir(tmp_path, monkeypatch):
     """An empty config folder used by get_config_dir()."""
@@ -87,6 +96,8 @@ class FakeServices:
                 "monitor": ("start_monitor", "stop_monitor"),
                 "folder_watch": ("start_folder_watcher", "stop_folder_watcher"),
                 "ftp_receive": ("start_ftp_receiver", "stop_ftp_receiver"),
+                "smb_poll": ("start_smb_poll", "stop_smb_poll"),
+                "imap_receive": ("start_imap_receive", "stop_imap_receive"),
                 "mdns": ("start", "stop"),
             }.get(short)
             if short == "retry_queue":

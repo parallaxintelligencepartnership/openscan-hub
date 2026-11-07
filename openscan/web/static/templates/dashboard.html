@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OpenScanHub</title>
     <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/profiles.css">
 </head>
 <body>
     <a href="settings" class="settings-link" title="Settings" aria-label="Settings">&#9881;</a>
@@ -29,6 +30,15 @@
             </div>
         </div>
 
+        <!-- Profile buttons: one tap scans with a profile -->
+        <div class="card profile-buttons hidden" id="profile-buttons">
+            <div class="profile-buttons-head">
+                <h2>Scan with a profile</h2>
+                <a href="profiles" class="hidden" id="profiles-link">Edit profiles</a>
+            </div>
+            <div class="profile-button-list" id="profile-button-list"></div>
+        </div>
+
         <!-- Scan buttons (only when OpenScanHub drives the scanner) -->
         <div class="scan-buttons mb-16 hidden" id="scan-buttons">
             <div class="scan-button-group hidden" id="btn-adf-group">
@@ -44,6 +54,22 @@
                     Several pages
                 </button>
             </div>
+        </div>
+
+        <!-- Phone app: link and QR code -->
+        <div class="card hidden" id="phone-card">
+            <h2>Scan from your phone</h2>
+            <p>Open the phone page on your phone. Scan the code with the phone camera.</p>
+            <p><a href="m" id="phone-link">Open the phone page</a></p>
+            <div class="phone-qr"><canvas id="phone-qr" width="1" height="1" role="img"
+                aria-label="QR code for the phone page"></canvas></div>
+            <p class="hint" id="phone-url"></p>
+            <p class="hint hidden" id="phone-local-note">This page uses a name that only this computer knows.
+                Open the dashboard by the computer's network address, then scan the code.</p>
+            <p class="hint hidden" id="phone-no-token">The code with the scan token needs a scan token.
+                Make one under Settings.</p>
+            <button class="btn btn-secondary btn-small" id="phone-code-btn" type="button">Show phone code</button>
+            <p class="hint hidden" id="phone-code-warning">This code signs in a phone as scan only. Do not share it.</p>
         </div>
 
         <!-- Receive-only setups -->
@@ -122,6 +148,9 @@
     <div class="toast-container" id="toast-container"></div>
 
     <script src="js/common.js"></script>
+    <script src="js/qr.js"></script>
+    <script src="js/phone-link.js"></script>
     <script src="js/dashboard.js"></script>
+    <script src="js/profiles.js"></script>
 </body>
 </html>

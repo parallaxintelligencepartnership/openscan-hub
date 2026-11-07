@@ -10,7 +10,8 @@ from typing import Any, Optional
 from .. import __version__
 from .. import multipage
 from ..config import AppConfig, config_dir_writable
-from .. import intake
+from .. import feed, intake, profiles
+from ..profiles import Profile
 from ..scanner.base import (
     ScannerInfo, ScanSettings, ScanSource, release_scan, scan_lock, try_acquire_scan,
 )
@@ -157,6 +158,16 @@ def clear_caps_cache() -> None:
         _caps_cache.clear()
 
 
+def _service_value(modpath: str, fn: str):
+    """Value of a plain status function of a service module (None if absent)."""
+    import importlib
+    try:
+        func = getattr(importlib.import_module(modpath), fn, None)
+        return func() if func else None
+    except Exception:
+        return None
+
+
 def _service_running(modpath: str, fn: str) -> Optional[bool]:
     import importlib
     try:
@@ -211,31 +222,48 @@ def queue_pending() -> list[dict]:
 
 
 def _scan_settings(config: AppConfig, source: ScanSource, resolution: Optional[int] = None,
-                   remove_blank_pages: Optional[bool] = None) -> ScanSettings:
-    s = config.scan
-    return ScanSettings(
-        source=source,
-        resolution=resolution or s.resolution,
-        color_mode=s.color_mode,
-        duplex=bool(s.duplex and source == ScanSource.ADF),
-        page_size=s.page_size,
-        remove_blank_pages=s.remove_blank_pages if remove_blank_pages is None else remove_blank_pages,
-    )
+                   remove_blank_pages: Optional[bool] = None,
+                   profile: Optional[Profile] = None) -> ScanSettings:
+    """Scanner settings from `profile` (default: the default profile). The
+    migrated Default profile follows the Settings page, as before."""
+    profile = profiles.get(config) if profile is None else profiles.live(config, profile)
+    return profiles.scan_settings(profile, source, resolution=resolution,
+                                  remove_blank_pages=remove_blank_pages)
+
+
+def pick_source(config: AppConfig, profile: Profile, requested: Any = None) -> ScanSource:
+    """Where to scan from: the profile's source, else `requested`, else the
+    feeder when it reports paper, else the flatbed."""
+    if profile.source == "adf":
+        return ScanSource.ADF
+    if profile.source == "flatbed":
+        return ScanSource.FLATBED
+    if isinstance(requested, str) and requested.strip():
+        return parse_source(requested)
+    try:
+        status = _impl(config.scanner.protocol).get_status(_scanner_info(config))
+        if status.adf_state.value == "ScannerAdfLoaded":
+            return ScanSource.ADF
+    except Exception as e:
+        logger.debug("Could not read the feeder state: %s", e)
+    return ScanSource.FLATBED
 
 
 def execute_scan(config: AppConfig, source: ScanSource, resolution: Optional[int] = None,
-                 remove_blank_pages: Optional[bool] = None) -> bytes:
+                 remove_blank_pages: Optional[bool] = None,
+                 profile: Optional[Profile] = None) -> bytes:
     """Drive the scanner and return the raw document. Caller must hold the scan lock."""
-    settings = _scan_settings(config, source, resolution, remove_blank_pages)
+    settings = _scan_settings(config, source, resolution, remove_blank_pages, profile)
     return _impl(config.scanner.protocol).scan(_scanner_info(config), settings)
 
 
 def save_document(config: AppConfig, pdf_data: bytes, source: str = "flatbed",
-                  started_by: str = "web") -> dict:
+                  started_by: str = "web", profile: Optional[Profile] = None) -> dict:
     """Process, name and deliver through intake.handle_scan. Returns
     delivery_summary() plus "filename" (the name actually written),
     "size_bytes", "page_count" and "warnings"."""
-    result = intake.handle_scan(config, pdf_data, source=source, started_by=started_by)
+    result = intake.handle_scan(config, pdf_data, source=source, started_by=started_by,
+                                profile=profile)
     summary = delivery_summary(result)
     summary["filename"] = getattr(result, "filename", "") or "scan.pdf"
     summary["size_bytes"] = getattr(result, "size_bytes", 0) or len(pdf_data)
@@ -280,21 +308,30 @@ def scan_message(summary: dict, filename: str) -> str:
     return f"Scanned {filename}, but saving failed: {detail}"
 
 
+def web_started_by(handler) -> str:
+    """Who started a scan from the web: the role and the address."""
+    role = getattr(handler, "request_role", None) or "admin"
+    return f"web {role} {handler.peer_ip()}"
+
+
 def run_scan(source: ScanSource, config: Optional[AppConfig] = None,
-             started_by: str = "web") -> dict:
-    """Scan and deliver one document. Raises ScannerBusy if another scan holds the lock."""
+             started_by: str = "web", profile: Optional[Profile] = None) -> dict:
+    """Scan and deliver one document with `profile` (default: the default
+    profile). Raises ScannerBusy if another scan holds the lock."""
     config = config or get_config()
     if scanner_mode(config) != "scanner":
         raise BadRequest(NO_DRIVE_MESSAGE)
+    profile = profiles.get(config) if profile is None else profiles.live(config, profile)
     if not try_acquire_scan(timeout=0):
         raise ScannerBusy(BUSY_MESSAGE)
     try:
-        raw = execute_scan(config, source)
-        pdf_data = multipage.ensure_pdf(raw, resolution=config.scan.resolution)
+        raw = execute_scan(config, source, profile=profile)
+        pdf_data = multipage.ensure_pdf(raw, resolution=profile.resolution)
     finally:
         release_scan()
-    summary = save_document(config, pdf_data, _source_id(source), started_by)
-    entry = _history_entry(summary, summary["size_bytes"], source.value)
+    summary = save_document(config, pdf_data, _source_id(source), started_by, profile)
+    entry = _history_entry(summary, summary["size_bytes"], source.value,
+                           profile=profile.name)
     add_to_history(entry)
     return {
         "success": summary["ok"],
@@ -304,7 +341,8 @@ def run_scan(source: ScanSource, config: Optional[AppConfig] = None,
     }
 
 
-def start_scan_async(source: ScanSource, wait: float = 5.0, started_by: str = "web") -> bool:
+def start_scan_async(source: ScanSource, wait: float = 5.0, started_by: str = "web",
+                     profile: Optional[Profile] = None) -> bool:
     """Start a scan on a worker thread. Returns False if the scanner is busy.
 
     The worker takes the lock itself (an RLock can only be released by its owner)
@@ -313,6 +351,7 @@ def start_scan_async(source: ScanSource, wait: float = 5.0, started_by: str = "w
     config = get_config()
     if scanner_mode(config) != "scanner":
         raise BadRequest(NO_DRIVE_MESSAGE)
+    profile = profiles.get(config) if profile is None else profiles.live(config, profile)
     started = threading.Event()
     outcome = {"busy": True}
 
@@ -324,12 +363,13 @@ def start_scan_async(source: ScanSource, wait: float = 5.0, started_by: str = "w
         started.set()
         try:
             try:
-                raw = execute_scan(config, source)
-                pdf_data = multipage.ensure_pdf(raw, resolution=config.scan.resolution)
+                raw = execute_scan(config, source, profile=profile)
+                pdf_data = multipage.ensure_pdf(raw, resolution=profile.resolution)
             finally:
                 release_scan()
-            summary = save_document(config, pdf_data, _source_id(source), started_by)
-            add_to_history(_history_entry(summary, summary["size_bytes"], source.value))
+            summary = save_document(config, pdf_data, _source_id(source), started_by, profile)
+            add_to_history(_history_entry(summary, summary["size_bytes"], source.value,
+                                          profile=profile.name))
             if not summary["ok"]:
                 logger.warning(scan_message(summary, summary["filename"]))
         except Exception as e:
@@ -347,7 +387,8 @@ def api_edition(handler, query):
     """Which edition this is and which optional features it has. The pages
     use it to hide controls for modules that are not in the build."""
     from .. import edition
-    handler._send_json({"edition": edition.current(), "features": edition.features()})
+    handler._send_json({"edition": edition.current(), "features": edition.features(),
+                        "role": getattr(handler, "request_role", None) or "admin"})
 
 
 @route("GET", "/api/health", public=True, query_token=True)
@@ -387,6 +428,21 @@ def api_status(handler, query):
                 "running": _service_running("openscan.scanner.folder_watch", "folder_watcher_running"),
                 "folder": config.folder_watch.watch_folder,
             },
+            "smb": {
+                "enabled": config.smb_poll.enabled,
+                "running": _service_running("openscan.scanner.smb_poll", "smb_poll_running"),
+                "server": config.smb_poll.server,
+                "share": config.smb_poll.share,
+                "path": config.smb_poll.path,
+                "error": _service_value("openscan.scanner.smb_poll", "smb_poll_last_error"),
+            },
+            "email": {
+                "enabled": config.imap_receive.enabled,
+                "running": _service_running("openscan.scanner.imap_receive", "imap_receive_running"),
+                "host": config.imap_receive.host,
+                "folder": config.imap_receive.folder,
+                "error": _service_value("openscan.scanner.imap_receive", "imap_receive_last_error"),
+            },
         },
     }
     if mode != "scanner":
@@ -410,13 +466,10 @@ def api_status(handler, query):
     handler._send_json(data)
 
 
-@route("POST", "/api/scan")
-def api_scan(handler, query):
-    """Scan one document. Body: {"source": "adf" | "flatbed"}."""
-    body = handler.read_json_body()
-    source = parse_source(body.get("source", "flatbed"))
+def send_scan(handler, source: ScanSource, profile: Optional[Profile] = None) -> None:
+    """Run one scan and answer: 200 with the result, 409 busy, 500 failed."""
     try:
-        result = run_scan(source, started_by=f"web {handler.peer_ip()}")
+        result = run_scan(source, started_by=web_started_by(handler), profile=profile)
     except ScannerBusy:
         handler._send_json({"success": False, "error": BUSY_MESSAGE}, status=409)
         return
@@ -429,6 +482,13 @@ def api_scan(handler, query):
     handler._send_json(result)
 
 
+@route("POST", "/api/scan")
+def api_scan(handler, query):
+    """Scan one document. Body: {"source": "adf" | "flatbed"}."""
+    body = handler.read_json_body()
+    send_scan(handler, parse_source(body.get("source", "flatbed")))
+
+
 @route("GET", "/api/history")
 def api_history(handler, query):
     try:
@@ -439,15 +499,96 @@ def api_history(handler, query):
         handler._send_json({"scans": _scan_history[:limit], "total": len(_scan_history)})
 
 
+# --- next feed ----------------------------------------------------------------
+
+def _next_feed() -> dict:
+    """The next-feed choice as the API shows it."""
+    config = get_config()
+    found = feed.peek()
+    profile = None
+    if found:
+        try:
+            stored = _profile_for(config, found[0])
+        except BadRequest:  # the profile was deleted since
+            stored, found = None, None
+        if stored:
+            profile = {"id": stored.id, "name": stored.name}
+    return {"next_profile": profile, "expires_in_seconds": found[1] if found else 0}
+
+
+def _result_word(entry: dict) -> str:
+    if entry.get("ok"):
+        return "ok"
+    return "queued" if entry.get("queued") else "failed"
+
+
+@route("GET", "/api/feed")
+def api_feed(handler, query):
+    """What the phone page shows: the next-feed profile, the feeder and
+    scanner state, and the last five scans."""
+    config = get_config()
+    data = _next_feed()
+    adf_state, scanner_state = "Unknown", "Unknown"
+    if scanner_mode(config) == "scanner":
+        try:
+            status = _impl(config.scanner.protocol).get_status(_scanner_info(config))
+            adf_state, scanner_state = status.adf_state.value, status.state.value
+        except Exception:
+            scanner_state = "Offline"
+    data["adf_state"] = adf_state
+    data["scanner_state"] = scanner_state
+    data["monitor_enabled"] = config.monitor.enabled
+    with _history_lock:
+        recent = list(_scan_history[:5])
+    data["last_scans"] = [{
+        "file": e.get("filename", ""),
+        "time": e.get("timestamp", ""),
+        "profile": e.get("profile", ""),
+        "result": _result_word(e),
+    } for e in recent]
+    handler._send_json(data)
+
+
+@route("POST", "/api/feed/next")
+def api_feed_next(handler, query):
+    """Body: {"profile_id": id} sets the profile for the next feeder batch.
+    {"profile_id": null} clears it."""
+    body = handler.read_json_body()
+    if "profile_id" not in body:
+        raise BadRequest("Missing profile_id")
+    profile = _profile_for(get_config(), body["profile_id"])
+    feed.set_next(profile.id if profile else None)
+    handler._send_json(_next_feed())
+
+
 # --- multi-page ---------------------------------------------------------------
+
+def _profile_for(config: AppConfig, profile_id: Any) -> Optional[Profile]:
+    """The live profile with this id, or None for no id. 404 if it does not exist."""
+    if profile_id in (None, ""):
+        return None
+    found = profiles.find(config, profile_id) if isinstance(profile_id, str) else None
+    if found is None and isinstance(profile_id, str) and not config.profiles:
+        implicit = profiles.from_settings(config)  # the migrated Default profile
+        found = implicit if implicit.id == profile_id else None
+    if found is None:
+        raise BadRequest("Profile not found", status=404)
+    return profiles.live(config, found)
+
 
 @route("POST", "/api/multipage/start")
 def api_multipage_start(handler, query):
     body = handler.read_json_body()
-    if scanner_mode(get_config()) != "scanner":
+    config = get_config()
+    if scanner_mode(config) != "scanner":
         raise BadRequest(NO_DRIVE_MESSAGE)
-    session_id = multipage.create_session(parse_source(body.get("source", "flatbed")))
-    handler._send_json({"session_id": session_id})
+    profile = _profile_for(config, body.get("profile_id"))
+    if profile is None:
+        source = parse_source(body.get("source", "flatbed"))
+    else:
+        source = pick_source(config, profile, body.get("source"))
+    session_id = multipage.create_session(source, profile.id if profile else "")
+    handler._send_json({"session_id": session_id, "profile_id": profile.id if profile else ""})
 
 
 def _session_from(body: dict):
@@ -467,10 +608,12 @@ def api_multipage_scan(handler, query):
     config = get_config()
     if scanner_mode(config) != "scanner":
         raise BadRequest(NO_DRIVE_MESSAGE)
+    profile = _profile_for(config, session.profile_id) if session.profile_id else None
     try:
         # One page per scan; blank pages are dropped when the session is saved.
         page_count = multipage.scan_page(
-            session_id, lambda: execute_scan(config, session.source, remove_blank_pages=False))
+            session_id, lambda: execute_scan(config, session.source, remove_blank_pages=False,
+                                             profile=profile))
     except multipage.ScannerBusyError:
         handler._send_json({"success": False, "error": BUSY_MESSAGE}, status=409)
         return
@@ -514,13 +657,15 @@ def api_multipage_save(handler, query):
     if not session.pages:
         raise BadRequest("No pages to save")
     config = get_config()
+    profile = _profile_for(config, body.get("profile_id") or session.profile_id)
     # Blank pages are removed once, by the profile's processing in intake.
     pdf_data = multipage.merge_pages(session_id)
     summary = save_document(config, pdf_data, _source_id(session.source),
-                            f"web {handler.peer_ip()}")
+                            web_started_by(handler), profile)
     page_count = summary["page_count"] or _page_count(pdf_data, len(session.pages))
+    extra = {"profile": profile.name} if profile else {}
     entry = _history_entry(summary, summary["size_bytes"], session.source.value,
-                           page_count=page_count)
+                           page_count=page_count, **extra)
     add_to_history(entry)
     # The pages are in the saved, queued or failed file now; on a hard failure
     # keep the session so the user can try again.
