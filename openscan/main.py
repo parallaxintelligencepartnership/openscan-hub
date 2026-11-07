@@ -32,6 +32,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Logging level")
     parser.add_argument("--show-token", action="store_true",
                         help="Print the access token and exit")
+    parser.add_argument("--scan", action="store_true",
+                        help="With --show-token: print the scan token instead")
     parser.add_argument("--version", action="version", version=f"{__app_name__} {__version__}")
     return parser
 
@@ -65,7 +67,7 @@ def run(argv: Optional[list[str]] = None) -> int:
     if args.show_token:
         # Read only: a second process must never generate a token of its own,
         # because it could never match the one the server is using.
-        token = read_saved_token()
+        token = read_saved_token(scan=args.scan)
         if not token:
             print("No saved access token yet: the config folder is not writable "
                   "or the app has not started")

@@ -52,7 +52,7 @@ def test_cli_set_writes_the_package_file(tmp_path, monkeypatch, capsys):
 
 def test_api_edition(live_server):
     data = live_server.get("/api/edition", token=TOKEN).json()
-    assert data == {"edition": "homelab", "features": edition.features()}
+    assert data == {"edition": "homelab", "features": edition.features(), "role": "admin"}
     assert live_server.get("/api/edition").status == 401
 
 

@@ -144,7 +144,12 @@ def api_test_scan(handler, query):
     handler._send_json({"success": True, "size_bytes": len(data), "size_readable": _format_size(len(data))})
 
 
-@route("POST", "/api/test-paperless")
+def _has_paperless() -> bool:
+    from .. import edition
+    return edition.has("paperless")
+
+
+@route("POST", "/api/test-paperless", guard=lambda cfg: _has_paperless())
 def api_test_paperless(handler, query):
     """Test a Paperless-NGX address. A blank token means "use the saved one"."""
     body = handler.read_json_body()

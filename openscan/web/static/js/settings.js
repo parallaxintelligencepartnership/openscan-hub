@@ -8,12 +8,16 @@ const settings = {
     secrets: null,
     newScanner: null,
     tokenShown: false,
+    scanTokenShown: false,
+    edition: { homelab: true, features: {} },
 
     async init() {
+        this.edition = await loadEdition();
         [this.cfg, this.defaults] = await Promise.all([api.get('api/config'), api.get('api/defaults')]);
         this.secrets = await api.get('api/secrets');
         this.fill();
         this.refreshProblems();
+        this.refreshAudit();
     },
 
     isLan(bind) { return !['127.0.0.1', 'localhost', '::1', ''].includes(bind || ''); },
@@ -61,6 +65,8 @@ const settings = {
         $('watch-folder').value = c.folder_watch.watch_folder || '';
 
         $('ha-enabled').checked = !!c.homeassistant.enabled;
+        $('audit-enabled').checked = !!(c.audit || {}).enabled;
+        $('scan-token-optional').classList.toggle('hidden', !this.edition.homelab);
 
         $('allow-lan').checked = this.isLan(c.web.bind);
         $('mdns-enabled').checked = !!c.web.advertise_mdns;
@@ -153,6 +159,7 @@ const settings = {
                 duplex: $('scan-duplex').checked,
                 remove_blank_pages: $('scan-remove-blank').checked,
             },
+            audit: { enabled: $('audit-enabled').checked },
             paperless: {
                 enabled: $('paperless-enabled').checked,
                 mode: $('paperless-mode').value,
@@ -174,6 +181,7 @@ const settings = {
             homeassistant: { enabled: $('ha-enabled').checked },
             web: { advertise_mdns: $('mdns-enabled').checked, port: parseInt($('web-port').value, 10) },
         };
+        if (!this.edition.homelab) { delete body.paperless; delete body.homeassistant; }
         const lan = $('allow-lan').checked;
         if (lan !== this.isLan(this.cfg.web.bind)) body.web.bind = lan ? '0.0.0.0' : '127.0.0.1';
         if (this.newScanner) {
@@ -226,6 +234,41 @@ const settings = {
         this.tokenShown = !this.tokenShown;
         $('token-value').textContent = this.tokenShown ? this.secrets.api_token : '•'.repeat(12);
         $('btn-reveal').textContent = this.tokenShown ? 'Hide' : 'Show';
+    },
+
+    revealScanToken() {
+        this.scanTokenShown = !this.scanTokenShown;
+        $('scan-token-value').textContent = this.scanTokenShown ? (this.secrets.scan_token || '') : '•'.repeat(12);
+        $('btn-reveal-scan').textContent = this.scanTokenShown ? 'Hide' : 'Show';
+    },
+
+    copyScanToken() { copyText(this.secrets.scan_token || ''); },
+
+    async regenerateScanToken() {
+        if (!confirm('Make a new scan token? Devices that use the old one must sign in again.')) return;
+        const data = await api.post('api/scan-token/regenerate', {});
+        if (data.scan_token) {
+            this.secrets.scan_token = data.scan_token;
+            this.scanTokenShown = false;
+            this.revealScanToken();
+            toast('New scan token made', 'success');
+        } else {
+            toast(data.error || 'Could not make a new scan token', 'error');
+        }
+    },
+
+    async refreshAudit() {
+        const data = await api.get('api/audit');
+        const entries = data.entries || [];
+        $('audit-rows').innerHTML = entries.map(e => {
+            const sent = Array.isArray(e.destinations) ? e.destinations.join(', ') : (e.destinations || '');
+            const result = { ok: 'Saved', queued: 'Waiting to retry', failed: 'Not saved' }[e.result] || e.result || '';
+            return `<tr><td>${esc(formatTime(e.time))}</td><td>${esc(e.source)}</td><td>${esc(e.profile_name || e.profile)}</td>
+                <td>${esc(e.pages)}</td><td class="mono">${esc(e.file)}</td>
+                <td>${esc(sent)}</td><td>${esc(result)}</td><td>${esc(e.started_by)}</td></tr>`;
+        }).join('');
+        $('audit-table').classList.toggle('hidden', entries.length === 0);
+        $('audit-empty').classList.toggle('hidden', entries.length !== 0);
     },
 
     copyToken() { copyText(this.secrets.api_token); },

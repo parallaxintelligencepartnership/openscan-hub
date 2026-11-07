@@ -280,6 +280,12 @@ def scan_message(summary: dict, filename: str) -> str:
     return f"Scanned {filename}, but saving failed: {detail}"
 
 
+def web_started_by(handler) -> str:
+    """Who started a scan from the web: the role and the address."""
+    role = getattr(handler, "request_role", None) or "admin"
+    return f"web {role} {handler.peer_ip()}"
+
+
 def run_scan(source: ScanSource, config: Optional[AppConfig] = None,
              started_by: str = "web") -> dict:
     """Scan and deliver one document. Raises ScannerBusy if another scan holds the lock."""
@@ -347,7 +353,8 @@ def api_edition(handler, query):
     """Which edition this is and which optional features it has. The pages
     use it to hide controls for modules that are not in the build."""
     from .. import edition
-    handler._send_json({"edition": edition.current(), "features": edition.features()})
+    handler._send_json({"edition": edition.current(), "features": edition.features(),
+                        "role": getattr(handler, "request_role", None) or "admin"})
 
 
 @route("GET", "/api/health", public=True, query_token=True)
@@ -416,7 +423,7 @@ def api_scan(handler, query):
     body = handler.read_json_body()
     source = parse_source(body.get("source", "flatbed"))
     try:
-        result = run_scan(source, started_by=f"web {handler.peer_ip()}")
+        result = run_scan(source, started_by=web_started_by(handler))
     except ScannerBusy:
         handler._send_json({"success": False, "error": BUSY_MESSAGE}, status=409)
         return
@@ -517,7 +524,7 @@ def api_multipage_save(handler, query):
     # Blank pages are removed once, by the profile's processing in intake.
     pdf_data = multipage.merge_pages(session_id)
     summary = save_document(config, pdf_data, _source_id(session.source),
-                            f"web {handler.peer_ip()}")
+                            web_started_by(handler))
     page_count = summary["page_count"] or _page_count(pdf_data, len(session.pages))
     entry = _history_entry(summary, summary["size_bytes"], session.source.value,
                            page_count=page_count)

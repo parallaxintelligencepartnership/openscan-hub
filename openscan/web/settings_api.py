@@ -22,10 +22,15 @@ logger = logging.getLogger(__name__)
 SECTIONS = ("scanner", "output", "paperless", "monitor", "folder_watch",
             "ftp_receive", "web", "scan", "homeassistant", "audit")
 
+# Sections that exist only in editions that ship the module.
+OPTIONAL_SECTIONS = {"paperless": "paperless", "homeassistant": "homeassistant"}
+OFFICE_REFUSAL = ("Home Assistant and Paperless-NGX are not part of this edition, "
+                  "so these settings cannot be saved.")
+
 # Blank means "keep the current value".
 SECRET_FIELDS = {("paperless", "api_token"), ("ftp_receive", "password")}
 # Never set through settings (the token has its own regenerate route).
-READ_ONLY_FIELDS = {("web", "api_token"), ("ftp_receive", "staging_dir")}
+READ_ONLY_FIELDS = {("web", "api_token"), ("web", "scan_token"), ("ftp_receive", "staging_dir")}
 
 CHOICES = {
     ("scanner", "protocol"): {"escl", "wsd", "ftp", "folder", ""},
@@ -124,6 +129,10 @@ def merge_config(current: AppConfig, body: dict) -> AppConfig:
     Unknown keys are ignored, secrets left blank keep their value, and nothing
     that is not in `body` changes.
     """
+    from .. import edition
+    for section in OPTIONAL_SECTIONS:
+        if body.get(section) and not edition.has(OPTIONAL_SECTIONS[section]):
+            raise BadRequest(OFFICE_REFUSAL)
     new = copy.deepcopy(current)
     for section in SECTIONS:
         raw = body.get(section)
@@ -179,6 +188,8 @@ def redacted_config(cfg: AppConfig) -> dict:
     data["ftp_receive"]["password"] = ""
     data["web"]["has_token"] = bool(cfg.web.api_token)
     data["web"]["api_token"] = ""
+    data["web"]["has_scan_token"] = bool(cfg.web.scan_token)
+    data["web"]["scan_token"] = ""
     from .. import destinations
     for profile in data.get("profiles") or []:
         for dest in profile.get("destinations") or []:
@@ -196,13 +207,18 @@ def redacted_config(cfg: AppConfig) -> dict:
 def api_login(handler, query):
     body = handler.read_json_body()
     supplied = str(body.get("token", "")).strip()
-    token = get_config().web.api_token
-    if not supplied or not secret_equal(supplied, token):
+    web = get_config().web
+    role = None
+    if supplied and web.api_token and secret_equal(supplied, web.api_token):
+        role = "admin"
+    elif supplied and web.scan_token and secret_equal(supplied, web.scan_token):
+        role = "scan"
+    if role is None:
         time.sleep(0.5)  # slows guessing; the token is 128 bits anyway
         handler._send_json({"ok": False, "error": "That access token is not right"}, status=401)
         return
-    handler.add_header("Set-Cookie", handler.session_cookie_header())
-    handler._send_json({"ok": True})
+    handler.add_header("Set-Cookie", handler.session_cookie_header(role))
+    handler._send_json({"ok": True, "role": role})
 
 
 @route("GET", "/api/config")
@@ -221,7 +237,8 @@ def api_get_config(handler, query):
 @route("GET", "/api/secrets")
 def api_secrets(handler, query):
     cfg = get_config()
-    handler._send_json({"api_token": cfg.web.api_token, "ftp_password": cfg.ftp_receive.password})
+    handler._send_json({"api_token": cfg.web.api_token, "scan_token": cfg.web.scan_token,
+                        "ftp_password": cfg.ftp_receive.password})
 
 
 @route("POST", "/api/settings")
@@ -252,6 +269,17 @@ def api_regenerate_token(handler, query):
     logger.warning("Access token was regenerated; other devices must sign in again")
     handler.add_header("Set-Cookie", handler.session_cookie_header())
     handler._send_json({"api_token": new.web.api_token})
+
+
+@route("POST", "/api/scan-token/regenerate")
+def api_regenerate_scan_token(handler, query):
+    handler.read_json_body()
+    old = get_config()
+    new = copy.deepcopy(old)
+    new.web.scan_token = secrets.token_hex(16)
+    commit_config(old, new)
+    logger.warning("Scan token was regenerated; scan-only devices must sign in again")
+    handler._send_json({"scan_token": new.web.scan_token})
 
 
 @route("GET", "/api/errors")
