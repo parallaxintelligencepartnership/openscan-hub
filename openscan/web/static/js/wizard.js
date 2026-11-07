@@ -11,6 +11,7 @@ const wizard = {
 
     async init() {
         checkConfigWritable();
+        this.edition = await loadEdition();
         try {
             [this.defaults, this.config] = await Promise.all([api.get('api/defaults'), api.get('api/config')]);
         } catch (e) {
@@ -218,7 +219,9 @@ const wizard = {
             body.ftp_receive = off;
             body.folder_watch = off;
         }
-        if (document.getElementById('paperless-enabled').checked) {
+        if (this.edition && !this.edition.homelab) {
+            // Office has no Paperless-NGX module; the server refuses the section.
+        } else if (document.getElementById('paperless-enabled').checked) {
             body.paperless = {
                 enabled: true,
                 mode: document.getElementById('paperless-mode').value,
@@ -276,7 +279,7 @@ const wizard = {
         else items.push(['Scanner', (this.scanner.display_name || this.scanner.name || this.scanner.ip)]);
         if (body.monitor && body.monitor.enabled) items.push(['Feeder', 'Scans automatically when paper is loaded']);
         items.push(['Scans go to', body.output.folder]);
-        items.push(['Paperless-NGX', body.paperless.enabled ? 'Also sends there' : 'Not used']);
+        if (body.paperless) items.push(['Paperless-NGX', body.paperless.enabled ? 'Also sends there' : 'Not used']);
         document.getElementById('config-summary').innerHTML = items.map(([k, v]) =>
             `<li><span class="label">${esc(k)}</span><span class="value">${esc(v)}</span></li>`).join('');
 

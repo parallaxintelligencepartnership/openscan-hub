@@ -21,6 +21,23 @@ const api = {
     post(path, body) { return this.request('POST', path, body); },
 };
 
+/* Ask the server which edition this is. Hides every element marked
+   class="homelab-only" (Home Assistant and Paperless-NGX) in the Office edition.
+   Resolves to {edition, features, role}; a failure counts as the Homelab edition. */
+let editionPromise = null;
+function loadEdition() {
+    if (!editionPromise) {
+        editionPromise = api.get('api/edition').then(info => {
+            if (!info || !info.features) info = { edition: 'homelab', features: {}, role: 'admin' };
+            const office = !info.features.homeassistant && !info.features.paperless;
+            info.homelab = !office;
+            document.querySelectorAll('.homelab-only').forEach(el => el.classList.toggle('hidden', office));
+            return info;
+        }).catch(() => ({ edition: 'homelab', features: {}, role: 'admin', homelab: true }));
+    }
+    return editionPromise;
+}
+
 /* Show the red banner when the server cannot save its settings. */
 async function checkConfigWritable() {
     const banner = document.getElementById('config-banner');
