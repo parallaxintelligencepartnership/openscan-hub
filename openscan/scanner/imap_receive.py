@@ -11,6 +11,7 @@ certificate. Passwords are never logged.
 
 import email
 import email.policy
+import hashlib
 import imaplib
 import logging
 import ssl
@@ -35,6 +36,9 @@ _stop = threading.Event()
 _lock = threading.Lock()
 _error: Optional[str] = None
 _last_error: Optional[str] = None
+# Attachments already delivered or queued, per message, so a retry of a
+# partly delivered mail does not deliver them again: key -> set of digests.
+_done_parts: dict[str, set] = {}
 
 
 def imap_receive_running() -> bool:
@@ -219,21 +223,45 @@ def _handle_message(config: AppConfig, conn, uid: bytes) -> str:
     attachments = extract_attachments(msg)
     if not attachments:
         return "skip"
+    key = _message_key(config, uid)
+    done_parts = _done_parts.setdefault(key, set())
     all_ok = True
     for filename, payload in attachments:
-        all_ok &= _deliver(config, filename, payload)
+        digest = hashlib.sha256(filename.encode("utf-8", "replace") + b"\0" + payload).hexdigest()
+        if digest in done_parts:
+            continue  # delivered on an earlier poll
+        if _deliver(config, filename, payload):
+            done_parts.add(digest)
+        else:
+            all_ok = False
     if not all_ok:
         return "retry"
+    _done_parts.pop(key, None)
     conn.uid("STORE", uid, "+FLAGS", "(\\Seen)")
     target = c.move_to_folder.strip()
     if target and target != c.folder:
         typ, _ = conn.uid("COPY", uid, _quote(target))
         if typ == "OK":
             conn.uid("STORE", uid, "+FLAGS", "(\\Deleted)")
-            conn.expunge()
+            _expunge(conn, uid)
         else:
             logger.error("Could not move a message to %s", target)
     return "done"
+
+
+def _message_key(config: AppConfig, uid) -> str:
+    c = config.imap_receive
+    uid_s = uid.decode() if isinstance(uid, bytes) else str(uid)
+    return f"{c.host.lower()}:{c.port}|{c.username}|{c.folder}|{uid_s}"
+
+
+def _expunge(conn, uid) -> None:
+    """Remove the moved message. With UIDPLUS only this message goes; a plain
+    EXPUNGE removes every message marked deleted in the folder."""
+    if "UIDPLUS" in getattr(conn, "capabilities", ()):
+        conn.uid("EXPUNGE", uid)
+    else:
+        conn.expunge()
 
 
 def _deliver(config: AppConfig, filename: str, data: bytes) -> bool:

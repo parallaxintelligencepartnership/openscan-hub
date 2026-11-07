@@ -50,6 +50,15 @@ def tls(tmp_path_factory):
     return {"server": server_ctx, "cert": str(d / "cert.pem")}
 
 
+@pytest.fixture(autouse=True)
+def _fresh_poller():
+    """A stopped service loop leaves _stop set; poll_once would then skip mail."""
+    imap_receive._stop.clear()
+    getattr(imap_receive, "_done_parts", {}).clear()
+    yield
+    imap_receive._stop.clear()
+
+
 @pytest.fixture
 def queue(tmp_path, monkeypatch):
     q = retry_queue.RetryQueue(tmp_path / "q" / "retry_queue.json", tmp_path / "q" / "files")
@@ -265,3 +274,40 @@ def test_mail_stays_unseen_when_one_document_is_neither_delivered_nor_queued(
     assert calls == [1]
     [m] = ssl_server.messages("INBOX")
     assert "\\Seen" not in m["flags"]
+
+
+def test_partly_delivered_mail_does_not_deliver_the_first_attachment_again(
+        ssl_server, trust, tmp_path, monkeypatch, queue):
+    # Review A3: one attachment delivered, the other neither delivered nor
+    # queued. The retry must deliver only the second one.
+    from openscan import intake
+    ssl_server.add(make_mail(attachments=(("one.pdf", "application/pdf", PDF),
+                                          ("two.pdf", "application/pdf", PDF + b"2"))))
+    cfg = config_for(ssl_server, tmp_path)
+    real = intake.handle_scan
+    seen = []
+
+    def first_poll_fails_two(config, data, **kw):
+        seen.append(kw["filename"])
+        if kw["filename"] == "two.pdf" and seen.count("two.pdf") == 1:
+            return intake.IntakeResult(ok=False, errors=["disk full"])
+        return real(config, data, **kw)
+
+    monkeypatch.setattr(intake, "handle_scan", first_poll_fails_two)
+    assert imap_receive.poll_once(cfg) == 0
+    assert imap_receive.poll_once(cfg) == 1
+    assert seen == ["one.pdf", "two.pdf", "two.pdf"]
+    assert out_files(tmp_path) == ["one.pdf", "two.pdf"]
+
+
+def test_move_expunges_only_this_message_with_uidplus(tls, trust, tmp_path, queue):
+    server = FakeImapServer(ssl_context=tls["server"], implicit_tls=True, uidplus=True)
+    try:
+        other = server.add(make_mail(subject="someone else's"), seen=True, deleted=True)
+        server.add(make_mail())
+        cfg = config_for(server, tmp_path)
+        assert imap_receive.poll_once(cfg) == 1
+        assert [m["uid"] for m in server.messages("INBOX")] == [other]
+        assert any(line.upper().startswith("UID EXPUNGE") for line in server.log)
+    finally:
+        server.close()

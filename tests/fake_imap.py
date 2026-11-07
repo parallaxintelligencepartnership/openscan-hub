@@ -2,7 +2,7 @@
 a socket (optionally TLS or STARTTLS), so imaplib talks to it as to any
 server. It implements what OpenScanHub uses: CAPABILITY, STARTTLS, LOGIN,
 SELECT, LIST, CREATE, UID SEARCH UNSEEN, UID FETCH, UID STORE, UID COPY,
-EXPUNGE, LOGOUT."""
+EXPUNGE, UID EXPUNGE (with uidplus=True), LOGOUT."""
 
 import re
 import socket
@@ -13,8 +13,9 @@ from typing import Optional
 
 class FakeImapServer:
     def __init__(self, user="scan", password="mail-pw-123", ssl_context: Optional[ssl.SSLContext] = None,
-                 implicit_tls=False):
+                 implicit_tls=False, uidplus=False):
         self.user, self.password = user, password
+        self.uidplus = uidplus
         self.ssl_context = ssl_context
         self.implicit_tls = implicit_tls
         self.folders: dict[str, list[dict]] = {"INBOX": []}  # name -> messages
@@ -29,11 +30,14 @@ class FakeImapServer:
         self._thread = threading.Thread(target=self._accept, daemon=True)
         self._thread.start()
 
-    def add(self, raw: bytes, folder="INBOX", seen=False) -> int:
+    def add(self, raw: bytes, folder="INBOX", seen=False, deleted=False) -> int:
         with self.lock:
             uid = self._next_uid
             self._next_uid += 1
-            self.folders.setdefault(folder, []).append({"uid": uid, "raw": raw, "flags": {"\\Seen"} if seen else set()})
+            flags = {"\\Seen"} if seen else set()
+            if deleted:
+                flags.add("\\Deleted")
+            self.folders.setdefault(folder, []).append({"uid": uid, "raw": raw, "flags": flags})
             return uid
 
     def messages(self, folder):
@@ -88,6 +92,7 @@ class FakeImapServer:
         no = lambda msg="failed": self._send(st, f"{tag} NO {msg}")
         if cmd == "CAPABILITY":
             caps = "IMAP4rev1" + (" STARTTLS" if self.ssl_context and not self.implicit_tls else "")
+            caps += " UIDPLUS" if self.uidplus else ""
             self._send(st, f"* CAPABILITY {caps}")
             ok()
         elif cmd == "STARTTLS":
@@ -146,6 +151,12 @@ class FakeImapServer:
             self._send(st, f"{tag} OK done")
             return
         uid_s, _, tail = rest.partition(" ")
+        if sub == "EXPUNGE" and self.uidplus:
+            with self.lock:
+                self.folders[st["folder"]] = [m for m in msgs if not (
+                    str(m["uid"]) == uid_s and "\\Deleted" in m["flags"])]
+            self._send(st, f"{tag} OK done")
+            return
         target = [m for m in msgs if str(m["uid"]) == uid_s]
         if not target:
             self._send(st, f"{tag} OK nothing")
