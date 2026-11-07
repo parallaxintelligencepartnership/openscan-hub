@@ -1,4 +1,16 @@
+---
+title: Third-party notices
+project: openscan-hub
+status: current
+tags: [docs, licenses]
+created: 2026-10-10
+updated: 2026-11-06
+---
+
 # Third-party notices
+
+Tags: docs, licenses
+Wiki: [[README]]
 
 OpenScanHub itself is released under the MIT License (see `LICENSE`).
 It uses the open-source packages below. The Windows EXE and the Docker image
@@ -17,6 +29,12 @@ bundle them; each keeps its own license. Exact versions are pinned in
 | pypdfium2 | Apache-2.0 OR BSD-3-Clause | Page thumbnails | https://github.com/pypdfium2-team/pypdfium2 |
 | PDFium (binary inside pypdfium2) | Apache-2.0 OR BSD-3-Clause, plus the notices of its bundled libraries (FreeType, libjpeg-turbo, LittleCMS, libpng, OpenJPEG, zlib, ICU and others) listed in pypdfium2's `LicenseRef-PdfiumThirdParty.txt` | PDF rendering | https://pdfium.googlesource.com/pdfium/ |
 | Pillow | MIT-CMU (HPND) | Turning scanned images into PDF pages | https://github.com/python-pillow/Pillow |
+| smbprotocol | MIT | The SMB network share destination | https://github.com/jborean93/smbprotocol |
+| pyspnego (needed by smbprotocol) | MIT | Signing in to SMB servers | https://github.com/jborean93/pyspnego |
+| cryptography (needed by smbprotocol and pyspnego) | Apache-2.0 OR BSD-3-Clause | Encryption and signing for SMB | https://github.com/pyca/cryptography |
+| cffi (needed by cryptography) | MIT-0 | Calling native code | https://github.com/python-cffi/cffi |
+| pycparser (needed by cffi) | BSD-3-Clause | Reading C declarations | https://github.com/eliben/pycparser |
+| sspilib (needed by pyspnego, Windows only) | BSD-3-Clause | Windows sign-in for SMB | https://github.com/jborean93/sspilib |
 
 ## Windows EXE only
 

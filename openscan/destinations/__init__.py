@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 # Built-in destination modules. A module that is missing from the build (an
 # Office build deletes paperless.py) is skipped.
-_MODULES = ("folder", "paperless")
+_MODULES = ("folder", "paperless", "smb", "webdav", "email")
 
 _registry: dict[str, type[Destination]] = {}
 _loaded = False
