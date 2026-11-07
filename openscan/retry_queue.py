@@ -94,11 +94,17 @@ class RetryQueue:
 
     # --- adding --------------------------------------------------------
 
-    def add(self, *, filename: str, destinations: list[tuple[str, str]],
+    def add(self, *, filename: str, destinations: list[tuple],
             pdf_data: Optional[bytes] = None, source_path: Optional[str] = None,
             source_owned: bool = False, paperless: Optional[dict] = None,
             error: str = "") -> list[str]:
-        """Queue `filename` for each failed (destination, target). Returns ids."""
+        """Queue `filename` for each failed destination. Returns ids.
+
+        Each item is (type, target) or (type, target, options). `options`
+        must hold no secrets (Destination.public_options); a retry finds
+        them again in the config. `paperless` is the pre-0.4 way to pass
+        tags, correspondent and document type.
+        """
         if pdf_data is None and not source_path:
             raise ValueError("need pdf_data or source_path")
         now = self.clock()
@@ -118,7 +124,14 @@ class RetryQueue:
             else:
                 file_path, owned = str(source_path), bool(source_owned)
             ids = []
-            for destination, target in destinations:
+            for item in destinations:
+                destination, target = item[0], item[1]
+                options = dict(item[2]) if len(item) > 2 and item[2] else None
+                pl = dict(paperless or {})
+                if options is not None and not pl:
+                    # Older versions read these keys; keep a downgrade working.
+                    pl = {k: options[k] for k in ("tags", "correspondent", "document_type")
+                          if k in options}
                 entry = {
                     "id": uuid.uuid4().hex[:12],
                     "file": file_path,
@@ -126,18 +139,20 @@ class RetryQueue:
                     "destination": destination,
                     "target": target,
                     "owns_file": owned,
-                    "paperless": dict(paperless or {}),
+                    "paperless": pl,
                     "attempts": 1,
                     "last_error": error,
                     "created": now,
                     "next_try_ts": now + backoff_delay(1),
                     "status": STATUS_PENDING,
                 }
+                if options is not None:
+                    entry["options"] = options
                 entry["next_try"] = _iso(entry["next_try_ts"])
                 self._entries.append(entry)
                 ids.append(entry["id"])
             self._save()
-        logger.warning("Queued %s for retry (%s)", filename, ", ".join(d for d, _ in destinations))
+        logger.warning("Queued %s for retry (%s)", filename, ", ".join(d[0] for d in destinations))
         self._wake.set()
         return ids
 
@@ -181,22 +196,16 @@ class RetryQueue:
                 self._in_flight.discard(entry["id"])
 
     def _deliver(self, entry: dict) -> bool:
-        from .output import DeliveryError, deliver_to
+        from . import destinations
 
         try:
             data = Path(entry["file"]).read_bytes()
         except OSError as e:
             return self._record(entry, False, f"The saved copy of this scan is missing: {e}")
-        cfg = self._config
-        token = ""
-        if cfg is not None:
-            token = getattr(cfg.paperless, "api_token", "") or ""
-        p = entry.get("paperless") or {}
         try:
-            deliver_to(entry["destination"], entry["target"], data, entry["filename"],
-                       api_token=token, tags=p.get("tags"), correspondent=p.get("correspondent", ""),
-                       document_type=p.get("document_type", ""))
-        except DeliveryError as e:
+            options = entry_options(entry, self._config)
+            destinations.deliver_one(entry["destination"], data, entry["filename"], options)
+        except destinations.DeliveryError as e:
             return self._record(entry, False, str(e))
         except Exception as e:  # never let one entry kill the thread
             logger.exception("Retry of %s crashed", entry.get("filename"))
@@ -309,6 +318,34 @@ class RetryQueue:
 
     def running(self) -> bool:
         return bool(self._thread and self._thread.is_alive())
+
+
+def entry_options(entry: dict, config=None) -> dict:
+    """Destination options for a queued entry, secrets filled in from config.
+
+    Entries written before 0.4 have no "options": they are rebuilt from
+    "target" and the "paperless" dict.
+    """
+    from . import destinations
+
+    type_ = entry.get("destination", "")
+    target = entry.get("target") or ""
+    options = entry.get("options")
+    if not isinstance(options, dict):
+        p = entry.get("paperless") or {}
+        if type_ == "paperless_api":
+            options = {"url": target, "tags": list(p.get("tags") or []),
+                       "correspondent": p.get("correspondent", ""),
+                       "document_type": p.get("document_type", "")}
+        else:
+            options = {"folder": target}
+    options = dict(options)
+    cls = destinations.get(type_)
+    if cls is not None:
+        for key, value in destinations.secrets_for(type_, target, config).items():
+            options.setdefault(key, value)
+        options = cls.with_defaults(options)
+    return options
 
 
 _queue: Optional[RetryQueue] = None

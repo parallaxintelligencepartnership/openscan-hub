@@ -146,11 +146,11 @@ def test_concurrent_retries_deliver_once(tmp_path, clock, monkeypatch):
     import os
     import threading
 
-    from openscan import output
+    from openscan import destinations
     q = make(tmp_path, clock)
     out = tmp_path / "out"
     [eid] = q.add(filename="a.pdf", destinations=[("folder", str(out))], pdf_data=PDF)
-    real = output.deliver_to
+    real = destinations.deliver_one
     started = threading.Event()
     release = threading.Event()
 
@@ -159,7 +159,7 @@ def test_concurrent_retries_deliver_once(tmp_path, clock, monkeypatch):
         release.wait(5)
         return real(*a, **k)
 
-    monkeypatch.setattr(output, "deliver_to", slow)
+    monkeypatch.setattr(destinations, "deliver_one", slow)
     first = threading.Thread(target=q.retry_now, args=(eid,))
     first.start()
     assert started.wait(5)
@@ -191,20 +191,20 @@ def test_restart_during_a_slow_attempt_leaves_one_loop(tmp_path, clock, monkeypa
     # still exit once its attempt ends instead of running beside the new one.
     import threading
 
-    from openscan import output
+    from openscan import destinations
     q = make(tmp_path, clock)
     monkeypatch.setattr(q, "STOP_JOIN", 0.1)
     q.add(filename="a.pdf", destinations=[("folder", str(tmp_path / "out"))], pdf_data=PDF)
     clock.now += DAILY
     started, release = threading.Event(), threading.Event()
-    real = output.deliver_to
+    real = destinations.deliver_one
 
     def slow(*a, **k):
         started.set()
         release.wait(5)
         return real(*a, **k)
 
-    monkeypatch.setattr(output, "deliver_to", slow)
+    monkeypatch.setattr(destinations, "deliver_one", slow)
     q.start(None)
     first = q._thread
     assert started.wait(5)
