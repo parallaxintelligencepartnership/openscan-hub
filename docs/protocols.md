@@ -31,6 +31,8 @@ Rules for this document:
 | WSD Scan (WS-Scan) | Pull | `openscan/scanner/wsd.py` | Discovery, status, capabilities, CreateScanJob and RetrieveImage. No event subscription: the code has no `Subscribe` or `ScanAvailableEvent` handling. A scan started at the scanner panel does not reach OpenScanHub over WSD. |
 | FTP receiver | Push: the scanner sends the file | `openscan/scanner/ftp_receive.py` | Built on pyftpdlib. The scanner uses its "Scan to FTP" setting. Default port 2121. |
 | Folder watch | Push, through any tool that writes a file | `openscan/scanner/folder_watch.py` | Watches a folder for PDF, JPEG, TIFF and PNG files. |
+| SMB share poll | Push, through a share on a NAS | `openscan/scanner/smb_poll.py` | Uses smbprotocol. The scanner uses "Scan to network folder". OpenScanHub logs in to the share and polls one folder. See [inputs.md](inputs.md). |
+| Email in (IMAP) | Push, through a mailbox | `openscan/scanner/imap_receive.py` | Uses the Python standard library. Takes PDF and image attachments from unread mail. See [inputs.md](inputs.md). |
 
 Sources: the repository code. Mopria: https://www.mopria.org/specifications
 
@@ -38,9 +40,9 @@ Sources: the repository code. Mopria: https://www.mopria.org/specifications
 
 | Rank | Protocol | Reach | Spec | Library license vs MIT | Cost | Recommendation |
 |---|---|---|---|---|---|---|
-| 1 | Scan to SMB, by watching a share | Very high | Open (SMB) | No new library for a local share. smbprotocol (MIT) for a remote share. | S (recipe), M (remote poll) | Build in 0.4.0 |
+| 1 | Scan to SMB, by watching a share | Very high | Open (SMB) | No new library for a local share. smbprotocol (MIT) for a remote share. | S (recipe), M (remote poll) | Built in 0.4.0 (recipe and remote poll) |
 | 2 | Phone camera upload in the web app | Every user with a phone | HTML standard | No new library | S | Build in 0.4.0 |
-| 3 | Email in (IMAP mailbox poll) | High | Open (IMAP) | Python standard library | M | Build in 0.4.0 |
+| 3 | Email in (IMAP mailbox poll) | High | Open (IMAP) | Python standard library | M | Built in 0.4.0 |
 | 4 | WSD ScanAvailableEvent push | Medium to high (WSD devices) | Published by Microsoft | No new library | M to L | Later (0.5) |
 | 5 | WebDAV receiver | Low to medium (office MFPs) | Open | WsgiDAV (MIT) | S to M | Later |
 | 6 | SANE network client (saned) | Low (Linux users with a USB scanner on a server) | Public domain | Write our own client | M to L | Later |
@@ -326,3 +328,4 @@ The "OK to ship" column is Judgment, not legal advice.
 | Date | Change |
 |---|---|
 | 2026-11-06 | First version. |
+| 2026-11-06 | Added the SMB share poll and email in (IMAP) to the supported table. |
