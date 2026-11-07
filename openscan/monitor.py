@@ -12,12 +12,11 @@ from datetime import datetime
 from typing import Optional
 
 from .config import AppConfig
-from . import intake
+from . import intake, profiles
 from .scanner.base import (
     AdfState,
     ScannerInfo,
     ScannerState,
-    ScanSettings,
     ScanSource,
     release_scan,
     try_acquire_scan,
@@ -231,16 +230,9 @@ def _auto_scan(config: AppConfig, scanner_info: ScannerInfo, scanner_impl) -> No
 
 
 def _auto_scan_pages(config: AppConfig, scanner_info: ScannerInfo, scanner_impl):
-    """Scan from the feeder. Caller holds scan_lock. Returns PDF bytes or None."""
-    d = config.scan
-    settings = ScanSettings(
-        source=ScanSource.ADF,
-        resolution=d.resolution,
-        color_mode=d.color_mode,
-        duplex=d.duplex,
-        page_size=d.page_size,
-        remove_blank_pages=d.remove_blank_pages,
-    )
+    """Scan from the feeder with the default profile's scanner settings.
+    Caller holds scan_lock. Returns PDF bytes or None."""
+    settings = profiles.scan_settings(profiles.get(config), ScanSource.ADF)
     try:
         return scanner_impl.scan(scanner_info, settings)
     except Exception as e:

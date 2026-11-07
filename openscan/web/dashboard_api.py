@@ -10,7 +10,8 @@ from typing import Any, Optional
 from .. import __version__
 from .. import multipage
 from ..config import AppConfig, config_dir_writable
-from .. import intake
+from .. import intake, profiles
+from ..profiles import Profile
 from ..scanner.base import (
     ScannerInfo, ScanSettings, ScanSource, release_scan, scan_lock, try_acquire_scan,
 )
@@ -211,31 +212,48 @@ def queue_pending() -> list[dict]:
 
 
 def _scan_settings(config: AppConfig, source: ScanSource, resolution: Optional[int] = None,
-                   remove_blank_pages: Optional[bool] = None) -> ScanSettings:
-    s = config.scan
-    return ScanSettings(
-        source=source,
-        resolution=resolution or s.resolution,
-        color_mode=s.color_mode,
-        duplex=bool(s.duplex and source == ScanSource.ADF),
-        page_size=s.page_size,
-        remove_blank_pages=s.remove_blank_pages if remove_blank_pages is None else remove_blank_pages,
-    )
+                   remove_blank_pages: Optional[bool] = None,
+                   profile: Optional[Profile] = None) -> ScanSettings:
+    """Scanner settings from `profile` (default: the default profile). The
+    migrated Default profile follows the Settings page, as before."""
+    profile = profiles.get(config) if profile is None else profiles.live(config, profile)
+    return profiles.scan_settings(profile, source, resolution=resolution,
+                                  remove_blank_pages=remove_blank_pages)
+
+
+def pick_source(config: AppConfig, profile: Profile, requested: Any = None) -> ScanSource:
+    """Where to scan from: the profile's source, else `requested`, else the
+    feeder when it reports paper, else the flatbed."""
+    if profile.source == "adf":
+        return ScanSource.ADF
+    if profile.source == "flatbed":
+        return ScanSource.FLATBED
+    if isinstance(requested, str) and requested.strip():
+        return parse_source(requested)
+    try:
+        status = _impl(config.scanner.protocol).get_status(_scanner_info(config))
+        if status.adf_state.value == "ScannerAdfLoaded":
+            return ScanSource.ADF
+    except Exception as e:
+        logger.debug("Could not read the feeder state: %s", e)
+    return ScanSource.FLATBED
 
 
 def execute_scan(config: AppConfig, source: ScanSource, resolution: Optional[int] = None,
-                 remove_blank_pages: Optional[bool] = None) -> bytes:
+                 remove_blank_pages: Optional[bool] = None,
+                 profile: Optional[Profile] = None) -> bytes:
     """Drive the scanner and return the raw document. Caller must hold the scan lock."""
-    settings = _scan_settings(config, source, resolution, remove_blank_pages)
+    settings = _scan_settings(config, source, resolution, remove_blank_pages, profile)
     return _impl(config.scanner.protocol).scan(_scanner_info(config), settings)
 
 
 def save_document(config: AppConfig, pdf_data: bytes, source: str = "flatbed",
-                  started_by: str = "web") -> dict:
+                  started_by: str = "web", profile: Optional[Profile] = None) -> dict:
     """Process, name and deliver through intake.handle_scan. Returns
     delivery_summary() plus "filename" (the name actually written),
     "size_bytes", "page_count" and "warnings"."""
-    result = intake.handle_scan(config, pdf_data, source=source, started_by=started_by)
+    result = intake.handle_scan(config, pdf_data, source=source, started_by=started_by,
+                                profile=profile)
     summary = delivery_summary(result)
     summary["filename"] = getattr(result, "filename", "") or "scan.pdf"
     summary["size_bytes"] = getattr(result, "size_bytes", 0) or len(pdf_data)
@@ -287,20 +305,23 @@ def web_started_by(handler) -> str:
 
 
 def run_scan(source: ScanSource, config: Optional[AppConfig] = None,
-             started_by: str = "web") -> dict:
-    """Scan and deliver one document. Raises ScannerBusy if another scan holds the lock."""
+             started_by: str = "web", profile: Optional[Profile] = None) -> dict:
+    """Scan and deliver one document with `profile` (default: the default
+    profile). Raises ScannerBusy if another scan holds the lock."""
     config = config or get_config()
     if scanner_mode(config) != "scanner":
         raise BadRequest(NO_DRIVE_MESSAGE)
+    profile = profiles.get(config) if profile is None else profiles.live(config, profile)
     if not try_acquire_scan(timeout=0):
         raise ScannerBusy(BUSY_MESSAGE)
     try:
-        raw = execute_scan(config, source)
-        pdf_data = multipage.ensure_pdf(raw, resolution=config.scan.resolution)
+        raw = execute_scan(config, source, profile=profile)
+        pdf_data = multipage.ensure_pdf(raw, resolution=profile.resolution)
     finally:
         release_scan()
-    summary = save_document(config, pdf_data, _source_id(source), started_by)
-    entry = _history_entry(summary, summary["size_bytes"], source.value)
+    summary = save_document(config, pdf_data, _source_id(source), started_by, profile)
+    entry = _history_entry(summary, summary["size_bytes"], source.value,
+                           profile=profile.name)
     add_to_history(entry)
     return {
         "success": summary["ok"],
@@ -310,7 +331,8 @@ def run_scan(source: ScanSource, config: Optional[AppConfig] = None,
     }
 
 
-def start_scan_async(source: ScanSource, wait: float = 5.0, started_by: str = "web") -> bool:
+def start_scan_async(source: ScanSource, wait: float = 5.0, started_by: str = "web",
+                     profile: Optional[Profile] = None) -> bool:
     """Start a scan on a worker thread. Returns False if the scanner is busy.
 
     The worker takes the lock itself (an RLock can only be released by its owner)
@@ -319,6 +341,7 @@ def start_scan_async(source: ScanSource, wait: float = 5.0, started_by: str = "w
     config = get_config()
     if scanner_mode(config) != "scanner":
         raise BadRequest(NO_DRIVE_MESSAGE)
+    profile = profiles.get(config) if profile is None else profiles.live(config, profile)
     started = threading.Event()
     outcome = {"busy": True}
 
@@ -330,12 +353,13 @@ def start_scan_async(source: ScanSource, wait: float = 5.0, started_by: str = "w
         started.set()
         try:
             try:
-                raw = execute_scan(config, source)
-                pdf_data = multipage.ensure_pdf(raw, resolution=config.scan.resolution)
+                raw = execute_scan(config, source, profile=profile)
+                pdf_data = multipage.ensure_pdf(raw, resolution=profile.resolution)
             finally:
                 release_scan()
-            summary = save_document(config, pdf_data, _source_id(source), started_by)
-            add_to_history(_history_entry(summary, summary["size_bytes"], source.value))
+            summary = save_document(config, pdf_data, _source_id(source), started_by, profile)
+            add_to_history(_history_entry(summary, summary["size_bytes"], source.value,
+                                          profile=profile.name))
             if not summary["ok"]:
                 logger.warning(scan_message(summary, summary["filename"]))
         except Exception as e:
@@ -417,13 +441,10 @@ def api_status(handler, query):
     handler._send_json(data)
 
 
-@route("POST", "/api/scan")
-def api_scan(handler, query):
-    """Scan one document. Body: {"source": "adf" | "flatbed"}."""
-    body = handler.read_json_body()
-    source = parse_source(body.get("source", "flatbed"))
+def send_scan(handler, source: ScanSource, profile: Optional[Profile] = None) -> None:
+    """Run one scan and answer: 200 with the result, 409 busy, 500 failed."""
     try:
-        result = run_scan(source, started_by=web_started_by(handler))
+        result = run_scan(source, started_by=web_started_by(handler), profile=profile)
     except ScannerBusy:
         handler._send_json({"success": False, "error": BUSY_MESSAGE}, status=409)
         return
@@ -434,6 +455,13 @@ def api_scan(handler, query):
         handler._send_json({"success": False, "error": str(e)}, status=500)
         return
     handler._send_json(result)
+
+
+@route("POST", "/api/scan")
+def api_scan(handler, query):
+    """Scan one document. Body: {"source": "adf" | "flatbed"}."""
+    body = handler.read_json_body()
+    send_scan(handler, parse_source(body.get("source", "flatbed")))
 
 
 @route("GET", "/api/history")

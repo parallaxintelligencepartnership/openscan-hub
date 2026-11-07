@@ -199,3 +199,40 @@ def live(config, profile: Profile) -> Profile:
     current = from_settings(config, id=profile.id, name=profile.name)
     return replace(current, icon=profile.icon, split=profile.split,
                    show_on_home=profile.show_on_home)
+
+
+def find(config, key: str) -> Optional[Profile]:
+    """The stored profile whose id, or else name (any case), is `key`."""
+    if not isinstance(key, str) or not key.strip():
+        return None
+    key = key.strip()
+    stored = list(getattr(config, "profiles", None) or [])
+    found = next((p for p in stored if p.id == key), None)
+    if found is None:
+        found = next((p for p in stored if p.name.strip().lower() == key.lower()), None)
+    return found
+
+
+def scan_settings(profile: Profile, source, *, resolution: Optional[int] = None,
+                  remove_blank_pages: Optional[bool] = None):
+    """The ScanSettings for one scan with `profile` from `source` (a ScanSource).
+
+    Duplex applies to the feeder only. The scanner drivers do not remove
+    blank pages; the flag is kept for callers that still read it.
+    """
+    from .scanner.base import ScanSettings, ScanSource
+    return ScanSettings(
+        source=source,
+        resolution=resolution or profile.resolution,
+        color_mode=profile.color_mode,
+        duplex=bool(profile.duplex and source == ScanSource.ADF),
+        page_size=profile.page_size,
+        remove_blank_pages=(profile.processing.remove_blank_pages
+                            if remove_blank_pages is None else remove_blank_pages),
+    )
+
+
+# The smart name fields ({doc_date}, {title}, {vendor}, {pages}, {barcode})
+# register themselves on import. intake imports this module, so every scan
+# has them.
+from . import name_fields  # noqa: E402,F401

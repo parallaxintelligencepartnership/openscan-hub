@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OpenScanHub</title>
     <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/profiles.css">
 </head>
 <body>
     <a href="settings" class="settings-link" title="Settings" aria-label="Settings">&#9881;</a>
@@ -27,6 +28,15 @@
                     <div style="font-size: 13px; color: var(--gray-500);" id="scanner-detail"></div>
                 </div>
             </div>
+        </div>
+
+        <!-- Profile buttons: one tap scans with a profile -->
+        <div class="card profile-buttons hidden" id="profile-buttons">
+            <div class="profile-buttons-head">
+                <h2>Scan with a profile</h2>
+                <a href="profiles" class="hidden" id="profiles-link">Edit profiles</a>
+            </div>
+            <div class="profile-button-list" id="profile-button-list"></div>
         </div>
 
         <!-- Scan buttons (only when OpenScanHub drives the scanner) -->
@@ -123,5 +133,6 @@
 
     <script src="js/common.js"></script>
     <script src="js/dashboard.js"></script>
+    <script src="js/profiles.js"></script>
 </body>
 </html>
