@@ -2,6 +2,15 @@
 
 All notable changes to OpenScanHub.
 
+## 0.3.2 (2026-11-06)
+
+Dependency refresh. No behavior changes.
+
+- pypdf 6.21.4, zeroconf 0.152.1 (Python 3.10) and 0.154.0 (Python 3.11 and
+  later), setuptools 84.2.1, pytest 9.2.0, pluggy 1.7.0,
+  pyinstaller-hooks-contrib 2026.9.
+- pypdf 7 and Pillow 13 are major releases. They wait for 0.4.0.
+
 ## 0.3.1 (2026-10-10)
 
 Fixes found while deploying the Docker image.
