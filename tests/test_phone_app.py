@@ -314,11 +314,9 @@ def test_old_start_and_save_still_work(scan_server, fake_scanner):
 
 
 def test_static_files_ship():
-    import tomllib
     from pathlib import Path
     root = Path(__file__).resolve().parent.parent
-    pkg = tomllib.loads((root / "pyproject.toml").read_text())["tool"]["setuptools"]["package-data"]
-    assert pkg["openscan.web.static"] == ["**/*"]
+    assert '"openscan.web.static" = ["**/*"]' in (root / "pyproject.toml").read_text()
     static = root / "openscan" / "web" / "static"
     for rel in ("templates/m.html", "manifest.webmanifest", "sw.js", "js/m.js", "js/qr.js",
                 "css/m.css", "icons/icon-192.png", "icons/icon-512.png"):
