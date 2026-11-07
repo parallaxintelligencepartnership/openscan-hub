@@ -74,7 +74,8 @@ for name in ("openscan.integrations", "openscan.destinations.paperless"):
     else:
         raise SystemExit("module present: " + name)
 from openscan import destinations
-assert "paperless_api" not in destinations.available() if hasattr(destinations, "available") else True
+types = [c.type for c in destinations.available()]
+assert "folder" in types and "paperless_api" not in types and "paperless_consume" not in types, types
 
 cfg = AppConfig()
 cfg.web.port = 0
