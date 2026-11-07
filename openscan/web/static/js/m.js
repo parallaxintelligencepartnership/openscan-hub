@@ -306,7 +306,7 @@
     }
 
     function move(from, to) {
-        if (to < 0 || to >= state.pages.length) return;
+        if (to === from || to < 0 || to >= state.pages.length) return;
         const order = state.pages.map((_, i) => i);
         order.splice(to, 0, order.splice(from, 1)[0]);
         queue(() => edit('reorder', { order }));
@@ -316,31 +316,33 @@
 
     function remove(i) { queue(() => edit('delete-page', { page_index: i })); }
 
-    // Drag with a finger or a mouse. The list reorders while you drag.
+    // Drag with a finger or a mouse. The page follows the pointer. When you let
+    // go, it goes where the pointer is. The up and down buttons do the same job.
     function startDrag(ev, li) {
         if (ev.button > 0) return;
         ev.preventDefault();
-        const list = $('page-list');
         const handle = ev.currentTarget;
         handle.setPointerCapture(ev.pointerId);
+        const startY = ev.clientY;
+        const from = Number(li.dataset.i);
         li.classList.add('dragging');
         const onMove = (e) => {
-            const others = Array.from(list.querySelectorAll('.page:not(.dragging):not(.placeholder)'));
-            const next = others.find((o) => {
-                const r = o.getBoundingClientRect();
-                return e.clientY < r.top + r.height / 2;
-            });
-            if (next) list.insertBefore(li, next);
-            else list.insertBefore(li, list.querySelector('.placeholder'));
+            li.style.transform = 'translateY(' + (e.clientY - startY) + 'px)';
         };
-        const onEnd = () => {
+        const onEnd = (e) => {
             handle.removeEventListener('pointermove', onMove);
             handle.removeEventListener('pointerup', onEnd);
             handle.removeEventListener('pointercancel', onEnd);
             li.classList.remove('dragging');
-            const order = Array.from(list.querySelectorAll('.page:not(.placeholder)')).map((o) => Number(o.dataset.i));
-            if (order.some((v, k) => v !== k)) queue(() => edit('reorder', { order }));
-            else renderPages();
+            li.style.transform = '';
+            if (e.type === 'pointercancel') return;
+            const others = Array.from(document.querySelectorAll('#page-list .page:not(.placeholder)'))
+                .filter((o) => o !== li);
+            const to = others.filter((o) => {
+                const r = o.getBoundingClientRect();
+                return e.clientY > r.top + r.height / 2;
+            }).length;
+            move(from, to);
         };
         handle.addEventListener('pointermove', onMove);
         handle.addEventListener('pointerup', onEnd);

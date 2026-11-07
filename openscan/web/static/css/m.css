@@ -136,7 +136,7 @@ input[type=password], input[type=text], select {
     padding: 10px;
     box-shadow: var(--shadow);
 }
-.page.dragging { opacity: 0.7; border-color: var(--primary); }
+.page.dragging { opacity: 0.85; border-color: var(--primary); position: relative; z-index: 2; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3); }
 .page .thumb {
     width: 84px;
     min-height: 100px;
