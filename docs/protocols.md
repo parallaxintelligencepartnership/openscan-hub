@@ -12,7 +12,7 @@ updated: 2026-11-06
 Tags: #openscan-hub #scanning #protocols #research
 Wiki: [[OpenScanHub]]
 
-Research date: 2026-11-06. Version this applies to: 0.3.2.
+Research date: 2026-11-06. Version this applies to: 0.4.0.
 
 This document lists the ways a scan can reach OpenScanHub, beyond what it supports now. For each protocol, it gives the reach and the spec status. It also gives the libraries and their licenses, a test plan without hardware, the build cost and a recommendation.
 

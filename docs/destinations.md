@@ -14,7 +14,7 @@ Wiki: [[README]] · [[architecture]]
 
 | Item | Value |
 |---|---|
-| Version | 0.4.0 (in development) |
+| Version | 0.4.0 |
 | Date | 2026-11-06 |
 | Standards | ASD-STE100 wording, ISO/IEC/IEEE 26514 layout |
 

@@ -2,7 +2,7 @@
 # Build: docker build -t openscan-hub .
 FROM python:3.13-slim
 
-ARG VERSION=0.3.2
+ARG VERSION=0.4.0
 # homelab (default) or office. See docs/editions.md.
 ARG EDITION=homelab
 
