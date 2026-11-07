@@ -518,8 +518,7 @@ def _profile_for(config: AppConfig, profile_id: Any) -> Optional[Profile]:
 def api_multipage_start(handler, query):
     body = handler.read_json_body()
     config = get_config()
-    # "upload_only" starts a session for photos and PDFs, which needs no scanner.
-    if scanner_mode(config) != "scanner" and body.get("upload_only") is not True:
+    if scanner_mode(config) != "scanner":
         raise BadRequest(NO_DRIVE_MESSAGE)
     profile = _profile_for(config, body.get("profile_id"))
     if profile is None:
@@ -617,66 +616,6 @@ def api_multipage_save(handler, query):
         "page_count": page_count,
         "results": entry["results"],
     })
-
-
-def _page_edit(handler, edit) -> None:
-    """Run `edit(session_id, body)` and answer with the session info."""
-    body = handler.read_json_body()
-    session_id, _ = _session_from(body)
-    try:
-        edit(session_id, body)
-    except IndexError as e:
-        raise BadRequest(str(e))
-    except ValueError as e:
-        raise BadRequest(str(e))
-    handler._send_json({"success": True, **(multipage.get_session_info(session_id) or {})})
-
-
-@route("POST", "/api/multipage/reorder")
-def api_multipage_reorder(handler, query):
-    """Body: {"session_id", "order": [page indexes in the new order]}."""
-    _page_edit(handler, lambda sid, body: multipage.reorder_pages(sid, body.get("order")))
-
-
-@route("POST", "/api/multipage/rotate")
-def api_multipage_rotate(handler, query):
-    """Body: {"session_id", "page_index", "degrees": 90 | 180 | 270 | -90}."""
-    _page_edit(handler, lambda sid, body: multipage.rotate_page(
-        sid, body.get("page_index"), body.get("degrees", 90)))
-
-
-@route("POST", "/api/multipage/delete-page")
-def api_multipage_delete_page(handler, query):
-    """Body: {"session_id", "page_index"}."""
-    _page_edit(handler, lambda sid, body: multipage.delete_page(sid, body.get("page_index")))
-
-
-@route("POST", "/api/multipage/upload", json_only=False)
-def api_multipage_upload(handler, query):
-    """Add a photo or PDF as pages. The raw body is the file and Content-Type
-    says what it is. Query: session_id. One file per request, 25 MB at most."""
-    session_id = (query.get("session_id") or [""])[0]
-    if not session_id:
-        raise BadRequest("Missing session_id")
-    if not multipage.get_session(session_id):
-        raise BadRequest("Session not found or expired", status=404)
-    try:
-        length = int(handler.headers.get("Content-Length", 0) or 0)
-    except ValueError:
-        raise BadRequest("Bad Content-Length")
-    if length <= 0:
-        raise BadRequest("The file is empty.")
-    if length > multipage.MAX_UPLOAD_BYTES:
-        raise BadRequest("The file is larger than 25 MB.", status=413)
-    data = handler.rfile.read(length)
-    try:
-        count = multipage.add_upload(session_id, data, handler.headers.get("Content-Type", ""))
-    except multipage.UploadError as e:
-        raise BadRequest(str(e), status=415)
-    except ValueError:
-        raise BadRequest("Session not found or expired", status=404)
-    handler._send_json({"success": True, "page_count": count,
-                        **(multipage.get_session_info(session_id) or {})})
 
 
 @route("POST", "/api/multipage/cancel")

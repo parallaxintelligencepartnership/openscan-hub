@@ -6,17 +6,12 @@ Each page scan takes the global scanner lock for its own duration only
 session has recent activity the monitor does not start auto-scans.
 """
 
-import hashlib
 import logging
 import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from io import BytesIO
 from typing import Callable, Optional
-
-from PIL import Image, ImageOps
-from pypdf import PdfReader, PdfWriter
 
 from . import pages
 from .scanner.base import ScanSource, release_scan, try_acquire_scan
@@ -31,10 +26,6 @@ MONITOR_PAUSE_WINDOW = timedelta(minutes=10)
 MAX_SESSIONS = 4
 # How long a page scan waits for the scanner lock before reporting busy.
 PAGE_LOCK_TIMEOUT = 2.0
-# Largest single upload (one photo or one PDF), in bytes.
-MAX_UPLOAD_BYTES = 25 * 1024 * 1024
-# Upper bound on pages in one session.
-MAX_PAGES = 300
 
 
 class ScannerBusyError(RuntimeError):
@@ -199,143 +190,4 @@ def get_session_info(session_id: str) -> Optional[dict]:
 			'source': session.source.value,
 			'profile_id': session.profile_id,
 			'created_at': session.created_at.isoformat(),
-			# A short id per page. It changes when the page image changes
-			# (for example after a rotation), so a client can cache thumbnails.
-			'pages': [hashlib.sha1(p).hexdigest()[:12] for p in session.pages],
 		}
-
-
-# --- editing: reorder, rotate, delete, upload ------------------------------------
-
-class UploadError(ValueError):
-	"""An uploaded file cannot be used as a page. The message is safe to show."""
-
-
-def _editable(session_id: str) -> MultiPageSession:
-	session = _sessions.get(session_id)
-	if not session:
-		raise ValueError(f'Session not found: {session_id}')
-	return session
-
-
-def _check_index(session: MultiPageSession, page_index) -> int:
-	if isinstance(page_index, bool) or not isinstance(page_index, int):
-		raise IndexError('Page index must be a whole number')
-	if page_index < 0 or page_index >= len(session.pages):
-		raise IndexError(f'Page index out of range: {page_index}')
-	return page_index
-
-
-def reorder_pages(session_id: str, order: list) -> int:
-	"""Put the pages in a new order. `order` lists every current page index
-	exactly once; the page at `order[0]` becomes the first page."""
-	with _sessions_lock:
-		session = _editable(session_id)
-		n = len(session.pages)
-		if (not isinstance(order, list) or len(order) != n
-				or any(isinstance(i, bool) or not isinstance(i, int) for i in order)
-				or sorted(order) != list(range(n))):
-			raise IndexError('order must list each page number once')
-		session.pages = [session.pages[i] for i in order]
-		session.last_activity = datetime.now()
-		return n
-
-
-def rotate_page(session_id: str, page_index: int, degrees: int) -> None:
-	"""Turn a page clockwise by 90, 180 or 270 degrees (or counter-clockwise
-	with a negative number)."""
-	if isinstance(degrees, bool) or not isinstance(degrees, int) or degrees % 90 or degrees % 360 == 0:
-		raise ValueError('degrees must be a multiple of 90')
-	with _sessions_lock:
-		session = _editable(session_id)
-		index = _check_index(session, page_index)
-		data = session.pages[index]
-	writer = PdfWriter()
-	for page in PdfReader(BytesIO(data)).pages:
-		page.rotate(degrees % 360)
-		writer.add_page(page)
-	out = BytesIO()
-	writer.write(out)
-	with _sessions_lock:
-		session = _editable(session_id)
-		# The list may have changed while we worked; find the page again.
-		if index < len(session.pages) and session.pages[index] is data:
-			session.pages[index] = out.getvalue()
-		elif data in session.pages:
-			session.pages[session.pages.index(data)] = out.getvalue()
-		else:
-			raise IndexError('That page changed. Try again.')
-		session.last_activity = datetime.now()
-
-
-def delete_page(session_id: str, page_index: int) -> int:
-	"""Remove one page. Returns the new page count."""
-	with _sessions_lock:
-		session = _editable(session_id)
-		del session.pages[_check_index(session, page_index)]
-		session.last_activity = datetime.now()
-		return len(session.pages)
-
-
-def _page_from_image(data: bytes) -> bytes:
-	try:
-		img = Image.open(BytesIO(data))
-		img.load()
-	except Exception as e:
-		raise UploadError('This photo cannot be read. Use a JPEG or PNG photo. '
-		                  'On an iPhone, set the camera format to Most Compatible.') from e
-	if img.format not in ('JPEG', 'PNG', 'MPO', 'HEIF', 'HEIC'):
-		raise UploadError('Only JPEG, PNG, HEIC and PDF files can be added.')
-	img = ImageOps.exif_transpose(img)
-	if img.mode not in ('L', 'RGB'):
-		img = img.convert('RGB')
-	# Choose a resolution that makes the photo about letter or A4 size.
-	dpi = max(72, round(max(img.size) / 11))
-	out = BytesIO()
-	img.save(out, format='PDF', resolution=dpi)
-	return out.getvalue()
-
-
-def _pages_from_pdf(data: bytes) -> list[bytes]:
-	try:
-		reader = PdfReader(BytesIO(data))
-		if reader.is_encrypted:
-			raise UploadError('This PDF is locked with a password.')
-		parts = []
-		for page in reader.pages:
-			writer = PdfWriter()
-			writer.add_page(page)
-			out = BytesIO()
-			writer.write(out)
-			parts.append(out.getvalue())
-	except UploadError:
-		raise
-	except Exception as e:
-		raise UploadError('This PDF cannot be read.') from e
-	if not parts:
-		raise UploadError('This PDF has no pages.')
-	return parts
-
-
-def add_upload(session_id: str, data: bytes, content_type: str = '') -> int:
-	"""Add an uploaded photo or PDF. Each PDF page becomes one page.
-	Returns the new page count. Raises UploadError for a bad file."""
-	if not data:
-		raise UploadError('The file is empty.')
-	if len(data) > MAX_UPLOAD_BYTES:
-		raise UploadError('The file is larger than 25 MB.')
-	kind = (content_type or '').split(';', 1)[0].strip().lower()
-	if kind and not (kind.startswith('image/') or kind == 'application/pdf'
-	                 or kind == 'application/octet-stream'):
-		raise UploadError('Only JPEG, PNG, HEIC and PDF files can be added.')
-	new_pages = _pages_from_pdf(data) if data.startswith(b'%PDF-') else [_page_from_image(data)]
-	with _sessions_lock:
-		session = _editable(session_id)
-		if len(session.pages) + len(new_pages) > MAX_PAGES:
-			raise UploadError(f'A document can have at most {MAX_PAGES} pages.')
-		session.pages.extend(new_pages)
-		session.last_activity = datetime.now()
-		count = len(session.pages)
-	logger.info('Added %d uploaded page(s) to session %s, now %d pages',
-	            len(new_pages), session_id, count)
-	return count
